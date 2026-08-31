@@ -587,11 +587,12 @@ export class Renderer {
         const label = {
           chest: 'Open', shrine: 'Pray', merchant: 'Trade',
         }[prop.type] || 'Use';
-        ctx.font = 'bold 11px "Courier New", monospace';
+        ctx.font = 'bold 9px "Courier New", monospace';
+        const w = ctx.measureText(`[E] ${label}`).width + 10;
         ctx.fillStyle = 'rgba(0,0,0,0.7)';
-        ctx.fillRect(c.x - 34, c.y - 52, 68, 15);
+        ctx.fillRect(c.x - w / 2, c.y - 32, w, 12);
         ctx.fillStyle = '#ffe9a8';
-        ctx.fillText(`[E] ${label}`, c.x, c.y - 41);
+        ctx.fillText(`[E] ${label}`, c.x, c.y - 23);
       }
     }
     ctx.restore();
@@ -656,6 +657,39 @@ export class Renderer {
           ctx.beginPath();
           ctx.arc(0, 0, f.radius * (0.65 + t * 0.4), -f.arc / 2, f.arc / 2);
           ctx.stroke();
+          ctx.restore();
+          break;
+        }
+        case 'thrust': {
+          // A tapered lance stroke that reaches the full hit range, so the
+          // weapon's reach is obvious from the animation alone.
+          ctx.save();
+          ctx.translate(f.x, f.y);
+          ctx.rotate(f.angle);
+          // Peaks at exactly f.radius, which is the melee range, so the
+          // animation never promises reach the hitbox does not have.
+          const reach = f.radius * (0.5 + t * 0.5);
+          const halfW = (f.radius * 0.16) * (1 - t * 0.55);
+          ctx.globalAlpha = (1 - t) * 0.85;
+          ctx.fillStyle = f.color || '#fff';
+          ctx.beginPath();
+          ctx.moveTo(6, -halfW);
+          ctx.lineTo(reach - 7, -halfW * 0.28);
+          ctx.lineTo(reach, 0);
+          ctx.lineTo(reach - 7, halfW * 0.28);
+          ctx.lineTo(6, halfW);
+          ctx.closePath();
+          ctx.fill();
+          // Bright point at the tip of the reach.
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = (1 - t) * 0.9;
+          const tip = ctx.createRadialGradient(reach, 0, 0, reach, 0, 11);
+          tip.addColorStop(0, '#ffffff');
+          tip.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = tip;
+          ctx.beginPath();
+          ctx.arc(reach, 0, 11, 0, TAU);
+          ctx.fill();
           ctx.restore();
           break;
         }

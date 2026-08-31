@@ -735,6 +735,29 @@ function indexRooms(d) {
 // 5. Room roles
 // ---------------------------------------------------------------------------
 
+/**
+ * The most open tile in a room: the one with the most floor around it.
+ *
+ * Players spawn on the entrance and have to hold the stairs for ten seconds, so
+ * both need real space. Using the room's geometric centre could land either in
+ * a one-tile nook of a cave-shaped room, where the rock rim leaves nowhere
+ * legal to stand and the party spawns unable to move at all.
+ */
+function openestTile(d, room) {
+  let best = [room.cx, room.cy];
+  let bestScore = -1;
+  for (const [x, y] of room.tiles) {
+    let score = 0;
+    for (let oy = -2; oy <= 2; oy++) {
+      for (let ox = -2; ox <= 2; ox++) {
+        if (d.isFloor(x + ox, y + oy)) score += (Math.abs(ox) <= 1 && Math.abs(oy) <= 1) ? 3 : 1;
+      }
+    }
+    if (score > bestScore) { bestScore = score; best = [x, y]; }
+  }
+  return { x: best[0], y: best[1] };
+}
+
 function assignRoles(rng, d, floorNo) {
   const rooms = d.rooms;
   if (!rooms.length) return;
@@ -772,14 +795,14 @@ function assignRoles(rng, d, floorNo) {
 
   const entrance = farA;
   entrance.kind = ROOM_KIND.ENTRANCE;
-  d.entrance = { x: entrance.cx, y: entrance.cy };
+  d.entrance = openestTile(d, entrance);
   d.entranceRoom = entrance.id;
   for (const r of rooms) r.depth = fromA.get(r.id);
 
   const boss = farB.id === entrance.id ? (rooms.find((r) => r.id !== entrance.id) || entrance) : farB;
   boss.kind = ROOM_KIND.BOSS;
   d.bossRoom = boss.id;
-  d.stairs = { x: boss.cx, y: boss.cy };
+  d.stairs = openestTile(d, boss);
 
   const free = () => rooms.filter((r) => r.kind === ROOM_KIND.NORMAL);
 
@@ -900,9 +923,11 @@ function decorate(rng, d, floorNo) {
   const freeTile = (x, y) => d.isFloor(x, y) && !occupied.has(key(x, y));
   const take = (x, y) => occupied.add(key(x, y));
 
-  // Keep spawn and exit clear.
-  for (let oy = -2; oy <= 2; oy++) {
-    for (let ox = -2; ox <= 2; ox++) {
+  // Keep a clear apron around the spawn point and the descent marker. Props are
+  // anchored bottom-centre and can be three tiles wide, so this reserves more
+  // than the marker itself.
+  for (let oy = -3; oy <= 3; oy++) {
+    for (let ox = -3; ox <= 3; ox++) {
       take(d.entrance.x + ox, d.entrance.y + oy);
       take(d.stairs.x + ox, d.stairs.y + oy);
     }

@@ -3,7 +3,7 @@ import { getAbility } from '../game/abilities.js';
 import { getClass } from '../game/classes.js';
 import { CONSUMABLES } from '../game/items.js';
 import { xpToNext, MAX_LEVEL } from '../game/stats.js';
-import { DESCENT_TIME } from '../game/world.js';
+import { DESCENT_TIME, FLOOR_COUNT } from '../game/world.js';
 import { clamp } from '../core/util.js';
 
 /**
@@ -201,12 +201,13 @@ export class Hud {
 
     const obj = $('#objective');
     const prog = world.descent?.progress || 0;
-    const sig = prog > 0 ? `ch${prog.toFixed(1)}` : 'idle';
+    const sig = prog > 0 ? `ch${prog.toFixed(1)}` : `idle${world.floorNo}`;
     if (obj.dataset.sig === sig) return;
     obj.dataset.sig = sig;
+    const last = world.floorNo >= FLOOR_COUNT;
     obj.innerHTML = prog > 0
-      ? `Unlocking the descent &mdash; <b>${(DESCENT_TIME - prog).toFixed(1)}s</b> left`
-      : 'Find the descent to the next floor.';
+      ? `${last ? 'Opening the way out' : 'Unlocking the descent'} &mdash; <b>${(DESCENT_TIME - prog).toFixed(1)}s</b> left`
+      : (last ? '<b>Escape the dungeon!</b>' : 'Find the descent to the next floor.');
   }
 }
 

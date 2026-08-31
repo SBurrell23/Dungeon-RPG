@@ -367,6 +367,10 @@ function resumeSavedRun() {
   afterFloorLoad();
   game.mode = 'playing';
   closeAllModals();
+  // closeAllModals only covers in-run panels; resuming also has to leave the
+  // menu itself, which otherwise stays up covering the game.
+  hideScreen('screen-menu');
+  hideScreen('screen-lobby');
   setHudVisible(true);
   clearLog();
   toast(`Resumed on floor ${world.floorNo}`, 2600);

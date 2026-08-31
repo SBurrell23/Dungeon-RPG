@@ -14,7 +14,7 @@ import { clamp } from '../core/util.js';
 export const MONSTERS = {
   slime: {
     id: 'slime', sheet: 'slime', name: 'Cave Slime',
-    base: { hp: 26, damage: 5, armor: 0, resist: 4, xp: 9, speed: 52 },
+    base: { hp: 26, damage: 9, armor: 0, resist: 4, xp: 9, speed: 52 },
     radius: 15, scale: 1.0, ai: 'chaser', mass: 0.8,
     attack: { range: 40, arc: 2.2, cooldown: 1.5, windup: 0.35, coef: 1, type: 'phys' },
     floors: [1, 4], weight: 12,
@@ -23,7 +23,7 @@ export const MONSTERS = {
   },
   bat: {
     id: 'bat', sheet: 'bat', name: 'Cave Bat',
-    base: { hp: 18, damage: 4, armor: 0, resist: 0, xp: 8, speed: 138 },
+    base: { hp: 18, damage: 7, armor: 0, resist: 0, xp: 8, speed: 138 },
     radius: 11, scale: 0.9, ai: 'erratic', mass: 0.4, flying: true,
     attack: { range: 34, arc: 2.0, cooldown: 1.0, windup: 0.18, coef: 1, type: 'phys' },
     floors: [1, 5], weight: 11,
@@ -31,7 +31,7 @@ export const MONSTERS = {
   },
   orc: {
     id: 'orc', sheet: 'orc', name: 'Orc Grunt',
-    base: { hp: 44, damage: 8, armor: 3, resist: 0, xp: 14, speed: 88 },
+    base: { hp: 44, damage: 14, armor: 3, resist: 0, xp: 14, speed: 88 },
     radius: 14, scale: 1.0, ai: 'chaser', mass: 1.1,
     attack: { range: 48, arc: 1.6, cooldown: 1.35, windup: 0.4, coef: 1, type: 'phys' },
     floors: [1, 5], weight: 12,
@@ -39,7 +39,7 @@ export const MONSTERS = {
   },
   skeleton: {
     id: 'skeleton', sheet: 'skeleton', name: 'Skeleton',
-    base: { hp: 36, damage: 7, armor: 2, resist: 8, xp: 13, speed: 96 },
+    base: { hp: 36, damage: 12, armor: 2, resist: 8, xp: 13, speed: 96 },
     radius: 13, scale: 1.0, ai: 'chaser', mass: 0.9,
     attack: { range: 46, arc: 1.7, cooldown: 1.25, windup: 0.35, coef: 1, type: 'phys' },
     floors: [1, 6], weight: 12,
@@ -47,7 +47,7 @@ export const MONSTERS = {
   },
   skeletonArcher: {
     id: 'skeletonArcher', sheet: 'skeletonArcher', name: 'Bone Archer',
-    base: { hp: 32, damage: 9, armor: 1, resist: 8, xp: 18, speed: 84 },
+    base: { hp: 32, damage: 15, armor: 1, resist: 8, xp: 18, speed: 84 },
     radius: 13, scale: 1.0, ai: 'ranged', mass: 0.9, preferredRange: 260,
     attack: {
       range: 340, cooldown: 2.0, windup: 0.5, coef: 1, type: 'phys',
@@ -58,7 +58,7 @@ export const MONSTERS = {
   },
   armoredSkeleton: {
     id: 'armoredSkeleton', sheet: 'armoredSkeleton', name: 'Armoured Skeleton',
-    base: { hp: 72, damage: 11, armor: 14, resist: 10, xp: 28, speed: 82 },
+    base: { hp: 72, damage: 17, armor: 14, resist: 10, xp: 28, speed: 82 },
     radius: 14, scale: 1.05, ai: 'tank', mass: 1.6,
     attack: { range: 52, arc: 1.7, cooldown: 1.5, windup: 0.45, coef: 1, type: 'phys' },
     floors: [3, 9], weight: 9,
@@ -66,7 +66,7 @@ export const MONSTERS = {
   },
   lancer: {
     id: 'lancer', sheet: 'lancer', name: 'Skeletal Lancer',
-    base: { hp: 58, damage: 14, armor: 8, resist: 6, xp: 30, speed: 104 },
+    base: { hp: 58, damage: 20, armor: 8, resist: 6, xp: 30, speed: 104 },
     radius: 14, scale: 1.05, ai: 'charger', mass: 1.2,
     attack: { range: 78, arc: 0.8, cooldown: 1.7, windup: 0.5, coef: 1, type: 'phys' },
     specials: [{ id: 'chargeDash', cooldown: 6, range: 420, speed: 620, coef: 1.5 }],

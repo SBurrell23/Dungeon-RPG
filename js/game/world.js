@@ -49,8 +49,9 @@ const DESCENT_RADIUS = 44;
 /** Traps within this distance of a player become visible. */
 const TRAP_REVEAL_RANGE = 150;
 
-/** Monsters within this distance are added to the compendium. */
-const CODEX_RANGE = 620;
+/** Monsters within this distance are added to the compendium - roughly what
+ *  fits on screen, so an entry means you actually saw the thing. */
+const CODEX_RANGE = 310;
 
 /** Trap kinds that survive being triggered and re-arm; the rest are one-shot. */
 const PERSISTENT_TRAPS = new Set(['flame', 'poison']);
@@ -145,8 +146,17 @@ export class World {
         p.mp = Math.max(p.mp, p.stats.maxMp * 0.5);
       }
       const jitter = this.rng.float(0, TAU);
-      p.x = spawn.x + Math.cos(jitter) * this.rng.float(0, 34);
-      p.y = spawn.y + Math.sin(jitter) * this.rng.float(0, 34);
+      const want = {
+        x: spawn.x + Math.cos(jitter) * this.rng.float(0, 30),
+        y: spawn.y + Math.sin(jitter) * this.rng.float(0, 30),
+      };
+      // The generator picks an open tile, but props and the rock rim can still
+      // make a specific pixel illegal - and a player who spawns inside geometry
+      // cannot move in any direction at all.
+      const spot = this.findStandableSpot(want.x, want.y, p, 8) || spawn;
+      p.x = spot.x;
+      p.y = spot.y;
+      p.px = p.x; p.py = p.y;
       p.vx = 0; p.vy = 0;
     }
 
@@ -836,8 +846,10 @@ export class World {
   melee(actor, opts) {
     const { range, arc, coef, power, type, knockback } = opts;
     if (opts.sfx) this.sfxAt(actor.x, actor.y, opts.sfx);
-    this.spawnFx('slash', actor.x, actor.y, {
-      angle: actor.facing, arc, radius: range, life: 0.16,
+    // The effect traces the actual hitbox, so a long narrow thrust looks like
+    // reach and a wide sweep looks like a sweep.
+    this.spawnFx(opts.fx || 'slash', actor.x, actor.y, {
+      angle: actor.facing, arc, radius: range, life: opts.fx === 'thrust' ? 0.2 : 0.16,
       color: type === 'phys' ? '#ffffff' : '#ffd48a',
     });
 

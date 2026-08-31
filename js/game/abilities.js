@@ -45,7 +45,7 @@ export const ABILITIES = {
     cast(ctx) {
       ctx.world.melee(ctx.actor, {
         range: 68, arc: 0.5, coef: 1.12, power: P.melee, type: 'phys',
-        knockback: 130, sfx: 'swing',
+        knockback: 130, sfx: 'swing', fx: 'thrust',
       });
     },
   },
