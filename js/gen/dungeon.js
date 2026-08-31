@@ -172,21 +172,27 @@ function pruneBlockingProps(d) {
     return count;
   };
 
-  const baseline = reach();
+  // Reachable count with nothing placed. As props are accepted this drops by
+  // exactly the tiles they occupy - anything more means the prop cut the floor.
+  let baseline = reach();
 
-  /** Tiles a prop would occupy, using the same placement the renderer uses. */
+  /**
+   * Tiles a prop touches. Deliberately conservative - every tile its collision
+   * rect overlaps at all counts, so this over-estimates what is blocked
+   * relative to the runtime rectangle test. Erring that way keeps the
+   * connectivity proof valid: anything this pass proves reachable stays
+   * reachable in play.
+   */
   const footprint = (kind, tx, ty) => {
     const pl = decorPlacement(kind, tx, ty);
     if (!pl) return [d.idx(tx, ty)];
+    const ix = pl.sw * 0.12, iy = pl.sh * 0.12;
+    const x0 = pl.dx + ix, y0 = pl.dy + iy;
+    const x1 = pl.dx + pl.sw - ix, y1 = pl.dy + pl.sh - iy;
     const out = [];
-    const tx0 = Math.floor(pl.dx / TILE), tx1 = Math.floor((pl.dx + pl.sw - 1) / TILE);
-    const ty0 = Math.floor(pl.dy / TILE), ty1 = Math.floor((pl.dy + pl.sh - 1) / TILE);
-    for (let y = ty0; y <= ty1; y++) {
-      for (let x = tx0; x <= tx1; x++) {
-        if (!d.inBounds(x, y)) continue;
-        const ox = Math.min(pl.dx + pl.sw, (x + 1) * TILE) - Math.max(pl.dx, x * TILE);
-        const oy = Math.min(pl.dy + pl.sh, (y + 1) * TILE) - Math.max(pl.dy, y * TILE);
-        if ((ox * oy) / (TILE * TILE) >= 0.4) out.push(d.idx(x, y));
+    for (let y = Math.floor(y0 / TILE); y <= Math.floor((y1 - 1) / TILE); y++) {
+      for (let x = Math.floor(x0 / TILE); x <= Math.floor((x1 - 1) / TILE); x++) {
+        if (d.inBounds(x, y)) out.push(d.idx(x, y));
       }
     }
     return out;
@@ -198,8 +204,10 @@ function pruneBlockingProps(d) {
     const tiles = footprint(dec.kind, dec.x, dec.y).filter((i) => !blocked[i]);
     if (!tiles.length) { keptDecor.push(dec); continue; }
     for (const i of tiles) blocked[i] = 1;
-    if (reach() === baseline) {
+    const after = reach();
+    if (after === baseline - tiles.length) {
       keptDecor.push(dec);
+      baseline = after;
     } else {
       for (const i of tiles) blocked[i] = 0;
     }
@@ -212,8 +220,10 @@ function pruneBlockingProps(d) {
     const i = d.idx(prop.x, prop.y);
     if (blocked[i]) { keptProps.push(prop); continue; }
     blocked[i] = 1;
-    if (reach() === baseline) {
+    const after = reach();
+    if (after === baseline - 1) {
       keptProps.push(prop);
+      baseline = after;
     } else {
       blocked[i] = 0;
       // A torch that would seal a doorway is simply not placed; a chest that
@@ -1074,7 +1084,9 @@ function placeTraps(rng, d, floorNo, freeTile, take) {
  */
 function populate(rng, d, floorNo, partySize) {
   const partyScale = 1 + (partySize - 1) * 0.45;
-  const budget = Math.floor((22 + floorNo * 9) * partyScale);
+  // Scales with floor size, not just depth - a floor-10 map is nearly twice
+  // the area of floor 1, and the old flat curve left it feeling empty.
+  const budget = Math.floor((26 + floorNo * 13) * partyScale);
   let spent = 0;
 
   const rooms = d.rooms.filter((r) => r.kind !== 'entrance' && r.kind !== 'shop' && r.kind !== 'boss');
@@ -1112,7 +1124,7 @@ function populate(rng, d, floorNo, partySize) {
   }
 
   // Wandering monsters in the corridors keep travel tense.
-  const wanderers = Math.floor(6 + floorNo * 1.5);
+  const wanderers = Math.floor(8 + floorNo * 2.4);
   for (let i = 0; i < wanderers; i++) {
     const x = rng.int(3, d.w - 4), y = rng.int(3, d.h - 4);
     if (!d.isFloor(x, y) || !d.corridor[d.idx(x, y)]) continue;

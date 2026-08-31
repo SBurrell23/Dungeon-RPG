@@ -50,7 +50,6 @@
 
     <div id="log"></div>
     <div id="toast"></div>
-    <div id="hint">WASD move &middot; Mouse aim &middot; LMB attack &middot; 1-4 abilities &middot; Q/R potions &middot; E interact &middot; Shift dash &middot; I inventory &middot; C stats &middot; P spells &middot; M map</div>
   </div>
 
   <!-- ===================== Overlays ===================== -->
@@ -139,14 +138,16 @@
         <div class="tabs">
           <button class="tab active" data-tab="inv">Character Inventory</button>
           <button class="tab" data-tab="spells">Spells</button>
+          <button class="tab" data-tab="codex">Compendium</button>
           <button class="tab" data-tab="stats">Stats</button>
         </div>
         <div class="sheetbody">
           <div class="tabpane active" id="pane-inv"></div>
           <div class="tabpane" id="pane-spells"></div>
+          <div class="tabpane" id="pane-codex"></div>
           <div class="tabpane" id="pane-stats"></div>
         </div>
-        <button class="btn ghost close" id="btn-closeinv">Close (I)</button>
+        <button class="closex" id="btn-closeinv" title="Close (I)" aria-label="Close">&times;</button>
       </div>
     </section>
 
@@ -166,7 +167,7 @@
             <div id="shopbag" class="itemgrid"></div>
           </div>
         </div>
-        <button class="btn ghost close" id="btn-closeshop">Close (E)</button>
+        <button class="closex" id="btn-closeshop" title="Close (E)" aria-label="Close">&times;</button>
       </div>
     </section>
 
@@ -175,7 +176,7 @@
         <h2 id="maptitle">Floor Map</h2>
         <canvas id="bigmap" width="760" height="760"></canvas>
         <div class="maplegend" id="maplegend"></div>
-        <button class="btn ghost close" id="btn-closemap">Close (M)</button>
+        <button class="closex" id="btn-closemap" title="Close (M)" aria-label="Close">&times;</button>
       </div>
     </section>
 
@@ -210,6 +211,25 @@
         <label class="field"><span>Zoom</span><input type="range" id="opt-zoom" min="120" max="320" value="200"></label>
         <label class="check"><input type="checkbox" id="opt-light" checked><span>Dynamic lighting</span></label>
         <label class="check"><input type="checkbox" id="opt-shake" checked><span>Screen shake</span></label>
+
+        <h3>Controls</h3>
+        <div class="controls">
+          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Move</span></div>
+          <div><kbd>Mouse</kbd><span>Aim</span></div>
+          <div><kbd>LMB</kbd><span>Basic attack</span></div>
+          <div><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><span>Abilities</span></div>
+          <div><kbd>Q</kbd><kbd>R</kbd><span>Health / mana potion</span></div>
+          <div><kbd>E</kbd><span>Chests, merchants</span></div>
+          <div><kbd>Shift</kbd><span>Dash</span></div>
+          <div><kbd>I</kbd><span>Character inventory</span></div>
+          <div><kbd>C</kbd><span>Run stats</span></div>
+          <div><kbd>P</kbd><span>Spellbook</span></div>
+          <div><kbd>M</kbd><span>Floor map</span></div>
+          <div><kbd>Space</kbd><span>Switch spectate target</span></div>
+          <div><kbd>RMB</kbd><span>Drop a bag item for a teammate</span></div>
+        </div>
+        <p class="sub small">Stand on the descent marker for ten seconds without attacking or taking a hit to open the way down.</p>
+
         <div class="menu-actions">
           <button class="btn primary" id="btn-optclose">Done</button>
         </div>
@@ -252,7 +272,7 @@
         <div class="devgrid floors" id="dev-floors"></div>
 
         <div class="devinfo mono small dim" id="dev-info"></div>
-        <button class="btn ghost close" id="dev-close">Close (`)</button>
+        <button class="closex" id="dev-close" title="Close (`)" aria-label="Close">&times;</button>
       </div>
     </section>
 

@@ -6,6 +6,7 @@ import { SLOTS, SLOT_LABEL, SELL_RATE, BUY_MARKUP, INVENTORY_SIZE } from '../gam
 import { PRIMARIES, PRIMARY_LABEL, PRIMARY_BLURB, PRIMARY_ICON, xpToNext } from '../game/stats.js';
 import { getAbility, SCHOOLS } from '../game/abilities.js';
 import { getClass } from '../game/classes.js';
+import { MONSTERS, TRAP_INFO } from '../game/monsters.js';
 import { playSfx } from '../audio/sfx.js';
 
 /**
@@ -15,6 +16,59 @@ import { playSfx } from '../audio/sfx.js';
  * `actions`, which on the host applies immediately and on a client sends the
  * request to the host. That keeps one authority for everything that matters.
  */
+/** Human-readable behaviour names for compendium entries. */
+const AI_LABEL = {
+  chaser: 'Chaser', tank: 'Bruiser', charger: 'Charger',
+  erratic: 'Erratic flyer', ranged: 'Ranged', summoner: 'Summoner',
+};
+
+/**
+ * Small canvas thumbnail of a trap plate. Drawn rather than sprited because
+ * the traps themselves are drawn, so the two always match.
+ */
+function trapThumb(kind, color) {
+  const c = document.createElement('canvas');
+  c.width = 40;
+  c.height = 40;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#4a4038';
+  ctx.fillRect(2, 2, 36, 36);
+  ctx.strokeStyle = '#6a5b4c';
+  ctx.strokeRect(4.5, 4.5, 31, 31);
+  ctx.fillStyle = color;
+  if (kind === 'spike') {
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(9 + i * 11, 28);
+      ctx.lineTo(12.5 + i * 11, 12);
+      ctx.lineTo(16 + i * 11, 28);
+      ctx.fill();
+    }
+  } else if (kind === 'dart') {
+    for (let gy = 0; gy < 3; gy++) {
+      for (let gx = 0; gx < 3; gx++) {
+        ctx.beginPath();
+        ctx.arc(11 + gx * 9, 11 + gy * 9, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  } else if (kind === 'flame') {
+    for (let i = 0; i < 5; i++) ctx.fillRect(8, 9 + i * 5, 24, 2.4);
+  } else {
+    ctx.beginPath();
+    ctx.arc(20, 20, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2a2620';
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(20 + Math.cos(a) * 5, 20 + Math.sin(a) * 5, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  return c;
+}
+
 export class Panels {
   constructor(actions) {
     this.actions = actions;
@@ -33,6 +87,9 @@ export class Panels {
   }
 
   setPlayer(p) { this.player = p; }
+
+  /** The compendium reads discoveries off the world, not the character. */
+  setWorld(w) { this.world = w; }
 
   selectTab(tab) {
     this.activeTab = tab;
@@ -69,6 +126,7 @@ export class Panels {
     if (isScreenOpen('screen-inventory')) {
       if (this.activeTab === 'inv') this.renderInventory();
       else if (this.activeTab === 'spells') this.renderSpells();
+      else if (this.activeTab === 'codex') this.renderCodex();
       else this.renderStats();
     }
     if (isScreenOpen('screen-shop')) this.renderShop();
@@ -148,34 +206,6 @@ export class Panels {
     }
     left.appendChild(attrs);
 
-    left.appendChild(el('h3', null, 'Combat'));
-    const combat = el('div', 'statblock tight');
-    const rows = [
-      ['Health', `${Math.ceil(p.hp)} / ${Math.round(s.maxHp)}`],
-      ['Mana', `${Math.ceil(p.mp)} / ${Math.round(s.maxMp)}`],
-      ['Melee power', s.attackPower.toFixed(1)],
-      ['Ranged power', s.rangedPower.toFixed(1)],
-      ['Spell power', s.spellPower.toFixed(1)],
-      ['Armour', Math.round(s.armor)],
-      ['Resistance', Math.round(s.resist)],
-      ['Crit chance', `${(s.critChance * 100).toFixed(1)}%`],
-      ['Crit damage', `${Math.round(s.critMult * 100)}%`],
-      ['Attack speed', `${Math.round(s.attackSpeed * 100)}%`],
-      ['Move speed', Math.round(s.moveSpeed)],
-      ['Cooldowns', `${Math.round((1 - s.cooldownMult) * 100)}% faster`],
-      ['Health regen', `${s.hpRegen.toFixed(1)}/s`],
-      ['Mana regen', `${s.mpRegen.toFixed(1)}/s`],
-    ];
-    if (s.lifeSteal > 0) rows.push(['Life steal', `${(s.lifeSteal * 100).toFixed(1)}%`]);
-    if (s.magicFind > 0) rows.push(['Magic find', `${(s.magicFind * 100).toFixed(0)}%`]);
-    if (s.xpBonus > 0) rows.push(['Experience', `+${(s.xpBonus * 100).toFixed(0)}%`]);
-    for (const [k, v] of rows) {
-      const row = el('div', 'statline');
-      row.appendChild(el('span', 'k', k));
-      row.appendChild(el('span', 'v', v));
-      combat.appendChild(row);
-    }
-    left.appendChild(combat);
     layout.appendChild(left);
 
     const right = el('div', 'invright');
@@ -260,19 +290,53 @@ export class Panels {
     }
     pane.appendChild(grid);
 
-    if (p.knownSpells.length <= 1) {
-      pane.appendChild(el('p', 'sub', 'Find or buy spell tomes in the dungeon to learn more. Tomes drop from chests, elites and bosses.'));
-    }
+    pane.appendChild(el('div', 'spellfoot',
+      'Tomes drop from chests, elites and bosses, or can be bought from a merchant.'));
   }
 
-  /** Run totals - interesting, but not something you need mid-fight. */
+  /** Derived combat numbers and run totals - reference, not mid-fight reading. */
   renderStats() {
     const p = this.player;
+    const s = p.stats;
     const pane = $('#pane-stats');
     pane.innerHTML = '';
-    pane.appendChild(el('h2', null, `${escapeHtml(p.name)} - this run`));
+    pane.appendChild(el('h2', null, escapeHtml(p.name)));
     pane.appendChild(el('p', 'sub', `Level ${p.level} - ${Math.round(p.xp)} / ${xpToNext(p.level)} experience`));
 
+    const cols = el('div', 'charstats');
+    const combatWrap = el('div');
+    combatWrap.appendChild(el('h3', null, 'Combat'));
+    const combat = el('div', 'statblock');
+    const rows = [
+      ['Health', `${Math.ceil(p.hp)} / ${Math.round(s.maxHp)}`],
+      ['Mana', `${Math.ceil(p.mp)} / ${Math.round(s.maxMp)}`],
+      ['Melee power', s.attackPower.toFixed(1)],
+      ['Ranged power', s.rangedPower.toFixed(1)],
+      ['Spell power', s.spellPower.toFixed(1)],
+      ['Armour', Math.round(s.armor)],
+      ['Resistance', Math.round(s.resist)],
+      ['Crit chance', `${(s.critChance * 100).toFixed(1)}%`],
+      ['Crit damage', `${Math.round(s.critMult * 100)}%`],
+      ['Attack speed', `${Math.round(s.attackSpeed * 100)}%`],
+      ['Move speed', Math.round(s.moveSpeed)],
+      ['Cooldowns', `${Math.round((1 - s.cooldownMult) * 100)}% faster`],
+      ['Health regen', `${s.hpRegen.toFixed(1)}/s`],
+      ['Mana regen', `${s.mpRegen.toFixed(1)}/s`],
+    ];
+    if (s.lifeSteal > 0) rows.push(['Life steal', `${(s.lifeSteal * 100).toFixed(1)}%`]);
+    if (s.magicFind > 0) rows.push(['Magic find', `${(s.magicFind * 100).toFixed(0)}%`]);
+    if (s.xpBonus > 0) rows.push(['Experience', `+${(s.xpBonus * 100).toFixed(0)}%`]);
+    for (const [k, v] of rows) {
+      const row = el('div', 'statline');
+      row.appendChild(el('span', 'k', k));
+      row.appendChild(el('span', 'v', v));
+      combat.appendChild(row);
+    }
+    combatWrap.appendChild(combat);
+    cols.appendChild(combatWrap);
+
+    const runWrap = el('div');
+    runWrap.appendChild(el('h3', null, 'This run'));
     const block = el('div', 'statblock');
     const st = p.stat;
     for (const [k, v] of [
@@ -292,7 +356,69 @@ export class Panels {
       row.appendChild(el('span', 'v', String(v)));
       block.appendChild(row);
     }
-    pane.appendChild(block);
+    runWrap.appendChild(block);
+    cols.appendChild(runWrap);
+    pane.appendChild(cols);
+  }
+
+  /**
+   * The compendium. Fills in as the party meets things, so it is a record of
+   * what this run has actually shown you rather than a spoiler list.
+   */
+  renderCodex() {
+    const pane = $('#pane-codex');
+    pane.innerHTML = '';
+    const codex = this.world?.codex || { monsters: [], traps: [] };
+
+    const total = Object.keys(MONSTERS).length + Object.keys(TRAP_INFO).length;
+    const found = codex.monsters.length + codex.traps.length;
+    pane.appendChild(el('h3', null, `Dungeon Compendium - ${found} of ${total} recorded`));
+
+    if (!found) {
+      pane.appendChild(el('p', 'sub',
+        'Nothing recorded yet. Entries appear the first time you lay eyes on a monster or spot a trap.'));
+      return;
+    }
+
+    const grid = el('div', 'codexgrid');
+
+    for (const kind of codex.traps) {
+      const info = TRAP_INFO[kind];
+      if (!info) continue;
+      const card = el('div', 'codexcard');
+      const art = el('div', 'codexart');
+      art.appendChild(trapThumb(kind, info.color));
+      card.appendChild(art);
+      const text = el('div');
+      text.appendChild(el('div', 'cxname', info.name));
+      text.appendChild(el('div', 'cxtype', info.persistent ? 'Trap - re-arms' : 'Trap - single use'));
+      text.appendChild(el('div', 'cxdesc', info.flavour));
+      card.appendChild(text);
+      grid.appendChild(card);
+    }
+
+    for (const id of codex.monsters) {
+      const def = MONSTERS[id];
+      if (!def) continue;
+      const card = el('div', 'codexcard');
+      const art = el('div', 'codexart');
+      const img = new Image();
+      img.src = portraitUrl('mob', def.sheet);
+      art.appendChild(img);
+      card.appendChild(art);
+      const text = el('div');
+      text.appendChild(el('div', 'cxname', def.name));
+      text.appendChild(el('div', 'cxtype', `${AI_LABEL[def.ai] || def.ai} - floors ${def.floors[0]}-${def.floors[1]}`));
+      text.appendChild(el('div', 'cxdesc', def.flavour));
+      const stats = el('div', 'cxstats');
+      for (const bit of [`${def.base.hp} hp`, `${def.base.damage} dmg`, `${def.base.armor} arm`, `${def.base.xp} xp`]) {
+        stats.appendChild(el('span', null, bit));
+      }
+      text.appendChild(stats);
+      card.appendChild(text);
+      grid.appendChild(card);
+    }
+    pane.appendChild(grid);
   }
 
   // -------------------------------------------------------------------------

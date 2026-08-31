@@ -41,10 +41,10 @@ entirely.
 | `Q` / `R` | Drink health / mana potion |
 | `E` | Open chests, talk to merchants, take the stairs |
 | `Shift` | Dash (brief invulnerability) |
-| `I` / `C` / `P` | Character inventory / run stats / spellbook |
+| `I` / `C` / `P` / `B` | Character inventory / stats / spellbook / compendium |
 | `M` | Full floor map |
 | `Space` | While downed: switch which ally you are watching |
-| `Esc` | Options, or close the open panel |
+| `Esc` | Options and the full control list, or close the open panel |
 | `` ` `` | Dev console (testing tools) |
 
 Right-click an item in your bag to **drop it on the ground**, where a teammate can
@@ -174,6 +174,15 @@ face of the rock, and it is what gives the caverns their sense of depth.
 
 Terrain is baked into 576px chunks on demand and evicted LRU, so scrolling costs one
 bake per newly-visible chunk and nothing after that.
+
+### Smooth movement
+
+The simulation is a fixed 60 Hz while frames arrive at the display rate, so the
+renderer blends each body from its previous tick position toward its current one by
+the loop's leftover alpha - without that, a 144 Hz display draws the same position
+twice and then jumps. The camera translation is separately snapped to whole device
+pixels, because at nearest-neighbour scaling a fractional offset makes every terrain
+pixel shimmer as it rounds one way or the other.
 
 ### Sprites mirror, they do not rotate
 

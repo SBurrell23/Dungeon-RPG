@@ -20,10 +20,10 @@ export const PRIMARY_LABEL = {
 
 /** Icon-sheet cell per attribute, so the character sheet reads at a glance. */
 export const PRIMARY_ICON = {
-  str: [11, 12],   // axe
-  dex: [8, 16],    // bow
-  int: [18, 23],   // tome
-  vit: [29, 24],   // heart
+  str: [22, 19],   // orange orb
+  dex: [30, 18],   // green orb
+  int: [18, 18],   // blue orb
+  vit: [22, 18],   // red orb
 };
 
 export const PRIMARY_BLURB = {

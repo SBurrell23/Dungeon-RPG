@@ -230,21 +230,43 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 .namerow { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
 .namerow .lvl { color: var(--gold); }
 .bar {
-  position: relative; height: 13px; background: #0b0910;
-  border: 1px solid #2a2230; border-radius: 2px; overflow: hidden; margin-bottom: 3px;
+  position: relative; height: 15px; margin-bottom: 4px;
+  background: linear-gradient(#07060a, #120e16);
+  border: 1px solid #2a2230; border-radius: 3px; overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.75), 0 1px 0 rgba(255,255,255,.04);
 }
-.bar .fill { height: 100%; width: 50%; transition: width .12s linear; }
+.bar .fill {
+  height: 100%; width: 50%;
+  transition: width .18s cubic-bezier(.2,.8,.3,1);
+  position: relative;
+}
+/* Glass highlight across the top half of the fill. */
+.bar .fill::after {
+  content: ''; position: absolute; inset: 0 0 45% 0;
+  background: linear-gradient(rgba(255,255,255,.34), rgba(255,255,255,.06));
+  pointer-events: none;
+}
+/* Faint tick marks so you can read the bar at a glance, not just its colour. */
+.bar::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(90deg, transparent 0 24px, rgba(0,0,0,.32) 24px 25px);
+}
 .bar span {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
   font-size: 9px; color: rgba(255,255,255,.9); text-shadow: 0 1px 2px #000;
   white-space: nowrap; overflow: hidden;
 }
-.bar.hp .fill { background: linear-gradient(var(--hp-hi), var(--hp)); }
-.bar.mp .fill { background: linear-gradient(var(--mp-hi), var(--mp)); }
+.bar.hp .fill { background: linear-gradient(180deg, #ff8e73, var(--hp) 55%, #8d2418); box-shadow: 0 0 10px rgba(255,90,60,.4); }
+.bar.mp .fill { background: linear-gradient(180deg, #8fbcff, var(--mp) 55%, #1f3f8f); box-shadow: 0 0 10px rgba(80,140,255,.35); }
+.bar.hp.low .fill { animation: hpPulse 0.9s ease-in-out infinite; }
+@keyframes hpPulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(255,90,60,.4); }
+  50% { box-shadow: 0 0 18px rgba(255,120,90,.95); }
+}
 .bar.xp { height: 11px; }
 .bar.xp span { font-size: 8px; color: rgba(255,235,200,.9); }
-.bar.xp .fill { background: linear-gradient(#e0ac52, var(--xp)); }
+.bar.xp .fill { background: linear-gradient(180deg, #f0c473, var(--xp) 60%, #7a5620); }
 
 #buffs { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; max-width: 320px; }
 .buffchip {
@@ -313,17 +335,6 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 }
 #toast.show { opacity: 1; }
 
-/* Control reminder: prominent for the first few seconds of a run, then it
-   settles back so it never competes with the hotbar. */
-#hint {
-  position: absolute; left: 50%; bottom: 78px; transform: translateX(-50%);
-  white-space: nowrap;
-  font-size: 10px; color: rgba(228,216,198,.75);
-  background: rgba(10,8,12,.6); border: 1px solid var(--line);
-  border-radius: 3px; padding: 4px 10px;
-  transition: opacity 1.6s, color 1.6s;
-}
-#hint.settled { opacity: .32; }
 
 /* ===================== Item grids and tooltips ===================== */
 
@@ -391,6 +402,16 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 .tabpane.active { display: block; }
 .sheetbody { min-height: 420px; }
 .panel .close { position: absolute; right: 20px; top: 18px; }
+.closex {
+  position: absolute; right: 14px; top: 12px; z-index: 3;
+  width: 30px; height: 30px; padding: 0;
+  font-family: var(--mono); font-size: 20px; line-height: 1;
+  color: var(--dim); background: transparent;
+  border: 1px solid var(--line); border-radius: 4px;
+  cursor: var(--cursor-ui);
+  transition: color .12s, border-color .12s, background .12s;
+}
+.closex:hover { color: #ffb0b0; border-color: #7a2a2a; background: rgba(150,40,40,.18); }
 .panel { position: relative; }
 
 .invlayout { display: grid; grid-template-columns: 280px 372px; gap: 24px; justify-content: start; }
@@ -420,7 +441,15 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 .attrrow .attricon { width: 22px; height: 22px; image-rendering: pixelated; flex: none; }
 .attrrow .attrname { font-size: 12px; color: var(--dim); flex: 1; }
 .attrrow .attrval { font-size: 14px; color: var(--ink); font-weight: 600; min-width: 26px; text-align: right; }
-.attrrow .attrplus { padding: 0; width: 22px; height: 22px; line-height: 1; font-size: 14px; }
+.attrrow .attrplus {
+  padding: 0; width: 22px; height: 22px; line-height: 1; font-size: 15px;
+  color: #0d1a0d; font-weight: 700;
+  background: linear-gradient(#7fe08a, #3f9d4c);
+  border-color: #2e7a38;
+  box-shadow: 0 0 8px rgba(95,208,106,.35);
+}
+.attrrow .attrplus:hover { background: linear-gradient(#9bf0a4, #4fb35c); box-shadow: 0 0 12px rgba(95,208,106,.6); }
+.pointsleft { color: var(--ok); }
 .statblock.tight { padding: 10px 12px; }
 .statblock.tight .statline { font-size: 11px; padding: 3px 0; }
 .equipgrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
@@ -454,7 +483,44 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 .spellcard .sd { font-size: 11px; color: var(--dim); line-height: 1.45; }
 .spellcard .sm { font-size: 10px; color: #6fa0ff; margin-top: 4px; }
 
-/* ===================== Shop ===================== */
+/* ===================== Compendium ===================== */
+
+.codexgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.codexcard {
+  display: flex; gap: 12px; padding: 10px;
+  border: 1px solid var(--line); border-radius: 4px; background: rgba(0,0,0,.28);
+}
+.codexart {
+  width: 52px; height: 52px; flex: none;
+  border: 1px solid var(--line); border-radius: 3px;
+  background: #0e0b11; display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.codexart img, .codexart canvas { width: 48px; height: 48px; image-rendering: pixelated; }
+.cxname { font-size: 13px; color: var(--gold); }
+.cxtype { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin: 2px 0 5px; }
+.cxdesc { font-size: 11px; color: var(--ink); line-height: 1.5; }
+.cxstats { display: flex; gap: 10px; margin-top: 6px; font-size: 10px; color: var(--dim); }
+
+.spellfoot {
+  position: absolute; right: 32px; bottom: 20px; max-width: 300px;
+  font-size: 10px; color: var(--dim); text-align: right; line-height: 1.5;
+}
+#pane-spells { position: relative; padding-bottom: 34px; }
+
+/* ===================== Options: controls ===================== */
+
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 16px; margin-bottom: 16px; }
+.controls > div { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); }
+.controls span { margin-left: 4px; }
+kbd {
+  display: inline-block; min-width: 20px; padding: 2px 5px;
+  font-family: var(--mono); font-size: 10px; text-align: center;
+  color: var(--ink); background: linear-gradient(#2a2230, #191320);
+  border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px;
+}
+
+/* ===================== Shop =====================
 
 /* Leave room for the absolutely-positioned close button in the corner. */
 .shophead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; padding-right: 130px; }
@@ -511,5 +577,4 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
   .lobby-body { grid-template-columns: 1fr; }
   .invlayout, .shopbody, .charstats { grid-template-columns: 1fr; }
   #party { display: none; }
-  #hint { display: none; }
 }

@@ -135,12 +135,12 @@ export function portraitUrl(kind, id, tint) {
   const sheet = tint ? assets.recolorSheet(kind, id, 'idle', tint) : assets.sheet(kind, id, 'idle');
   if (!sheet) return '';
   const c = document.createElement('canvas');
-  c.width = 64; c.height = 64;
+  c.width = 96; c.height = 96;
   const ctx = c.getContext('2d');
   ctx.imageSmoothingEnabled = false;
-  // The art is a small sprite inside a 100px frame; crop in so the portrait
-  // is actually filled by the character.
-  ctx.drawImage(sheet.img, 30, 26, 44, 44, 0, 0, 64, 64);
+  // The character occupies barely a quarter of the 100px frame, so crop tight
+  // around it - otherwise the portrait is mostly empty space.
+  ctx.drawImage(sheet.img, 38, 31, 30, 30, 0, 0, 96, 96);
   url = c.toDataURL();
   portraitCache.set(key, url);
   return url;

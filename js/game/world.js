@@ -47,7 +47,10 @@ export const DESCENT_TIME = 10;
 const DESCENT_RADIUS = 44;
 
 /** Traps within this distance of a player become visible. */
-const TRAP_REVEAL_RANGE = 132;
+const TRAP_REVEAL_RANGE = 150;
+
+/** Monsters within this distance are added to the compendium. */
+const CODEX_RANGE = 620;
 
 /** Trap kinds that survive being triggered and re-arm; the rest are one-shot. */
 const PERSISTENT_TRAPS = new Set(['flame', 'poison']);
@@ -93,6 +96,9 @@ export class World {
 
     /** Descent channel state; see updateDescent(). */
     this.descent = { playerId: null, progress: 0, flash: 0 };
+
+    /** What the party has seen this run - drives the Compendium tab. */
+    this.codex = { monsters: [], traps: [] };
     this.state = 'playing'; // playing | descending | victory | defeat
     this.partyGold = 0;
 
@@ -161,35 +167,78 @@ export class World {
    * tile the art actually covers is blocked - marking only the anchor is what
    * let players stand on top of boulders and chests.
    */
+  /**
+   * Build the movement-blocking geometry.
+   *
+   * Props collide as rectangles, not tiles. A boulder is 90px wide on a 48px
+   * grid, so a tile mask either lets you stand on its corners or blocks a 3x2
+   * area for a 2x2 rock - neither reads right. The rects are bucketed by tile
+   * so a step test only ever looks at a handful.
+   *
+   * `blocked` is still maintained at tile granularity for the coarse checks
+   * (spawn validity, pathing hints); the rects are what movement uses.
+   */
   rebuildBlocked() {
     const d = this.dungeon;
     this.blocked = new Uint8Array(d.w * d.h);
     for (let i = 0; i < d.tiles.length; i++) this.blocked[i] = d.tiles[i] ? 0 : 1;
 
-    const block = (x, y) => { if (d.inBounds(x, y)) this.blocked[d.idx(x, y)] = 1; };
+    this.solidRects = [];
+    this.rectBuckets = new Map();
+
+    const addRect = (x, y, w, h) => {
+      const rect = { x, y, w, h };
+      this.solidRects.push(rect);
+      const tx0 = Math.floor(x / TILE), tx1 = Math.floor((x + w) / TILE);
+      const ty0 = Math.floor(y / TILE), ty1 = Math.floor((y + h) / TILE);
+      for (let ty = ty0; ty <= ty1; ty++) {
+        for (let tx = tx0; tx <= tx1; tx++) {
+          if (!d.inBounds(tx, ty)) continue;
+          const key = ty * d.w + tx;
+          let list = this.rectBuckets.get(key);
+          if (!list) this.rectBuckets.set(key, (list = []));
+          list.push(rect);
+          this.blocked[key] = 1;
+        }
+      }
+    };
 
     for (const dec of d.decor) {
       if (!dec.solid && !SOLID_DECOR.has(dec.kind)) continue;
       const pl = decorPlacement(dec.kind, dec.x, dec.y);
-      if (!pl) { block(dec.x, dec.y); continue; }
-      // Block every tile the sprite meaningfully covers. A sliver of overhang
-      // should not cost a whole tile, hence the coverage threshold.
-      const tx0 = Math.floor(pl.dx / TILE), tx1 = Math.floor((pl.dx + pl.sw - 1) / TILE);
-      const ty0 = Math.floor(pl.dy / TILE), ty1 = Math.floor((pl.dy + pl.sh - 1) / TILE);
-      for (let ty = ty0; ty <= ty1; ty++) {
-        for (let tx = tx0; tx <= tx1; tx++) {
-          const ox = Math.min(pl.dx + pl.sw, (tx + 1) * TILE) - Math.max(pl.dx, tx * TILE);
-          const oy = Math.min(pl.dy + pl.sh, (ty + 1) * TILE) - Math.max(pl.dy, ty * TILE);
-          if ((ox * oy) / (TILE * TILE) >= 0.4) block(tx, ty);
-        }
-      }
+      if (!pl) continue;
+      // Inset a little: sprite edges are soft, and the collision box reading
+      // slightly smaller than the art is far kinder than the reverse.
+      const ix = pl.sw * 0.12, iy = pl.sh * 0.12;
+      addRect(pl.dx + ix, pl.dy + iy, pl.sw - ix * 2, pl.sh - iy * 2);
     }
+
     // You should have to stand next to these to use them, not on top of them.
     // `noBlock` is set by the generator on the rare prop that would otherwise
     // seal a passage - see pruneBlockingProps().
     for (const prop of d.props) {
-      if (BLOCKING_PROPS.has(prop.type) && !prop.noBlock) block(prop.x, prop.y);
+      if (!BLOCKING_PROPS.has(prop.type) || prop.noBlock) continue;
+      addRect(prop.x * TILE + 8, prop.y * TILE + 8, TILE - 16, TILE - 16);
     }
+  }
+
+  /** Does an actor's body at (x, y) overlap a solid prop rectangle? */
+  hitsSolidRect(a, x, y) {
+    if (!this.rectBuckets) return false;
+    const d = this.dungeon;
+    const r = a.radius * 0.72;
+    const tx0 = Math.floor((x - r) / TILE), tx1 = Math.floor((x + r) / TILE);
+    const ty0 = Math.floor((y - r) / TILE), ty1 = Math.floor((y + r) / TILE);
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const list = this.rectBuckets.get(ty * d.w + tx);
+        if (!list) continue;
+        for (const q of list) {
+          if (x + r > q.x && x - r < q.x + q.w && y + r > q.y && y - r < q.y + q.h) return true;
+        }
+      }
+    }
+    return false;
   }
 
   spawnMonsters() {
@@ -300,6 +349,7 @@ export class World {
   update(dt, intents) {
     this.time += dt;
     this.runTime += dt;
+    this.snapshotPrevious();
     if (this.shakeAmount > 0) this.shakeAmount = Math.max(0, this.shakeAmount - dt * 30);
 
     this.rebuildGrid();
@@ -338,7 +388,8 @@ export class World {
 
     for (const n of this.npcs) advanceAnim(n, dt);
 
-    this.updateTrapVisibility();
+    this.updateTrapVisibility(dt);
+    this.updateCodex();
     this.updateTimers(dt);
     this.updateFx(dt);
     this.updatePickups(dt);
@@ -363,6 +414,20 @@ export class World {
       p.x += (p.netX - p.x) * k;
       p.y += (p.netY - p.y) * k;
     }
+  }
+
+  /**
+   * Stash every body's position before it moves.
+   *
+   * The simulation runs at a fixed 60 Hz while rendering runs at the display
+   * rate, so without this a 144 Hz monitor draws the same position for two
+   * frames then jumps - which is exactly the movement jitter you see. The
+   * renderer blends prev -> current by the loop's leftover alpha.
+   */
+  snapshotPrevious() {
+    for (const p of this.players) { p.px = p.x; p.py = p.y; }
+    for (const m of this.monsters) { m.px = m.x; m.py = m.y; }
+    for (const pr of this.projectiles) { pr.px = pr.x; pr.py = pr.y; }
   }
 
   updateTimers(dt) {
@@ -477,7 +542,7 @@ export class World {
     if (!stunned && intent.dash && p.dashCd <= 0 && (intent.mx || intent.my)) {
       p.dashCd = 2.2;
       const a = Math.atan2(intent.my, intent.mx);
-      this.startDash(p, a, 620, 0.18, null);
+      this.startDash(p, a, 620, 0.09, null);
       p.invuln = Math.max(p.invuln, 0.22);
       this.sfxAt(p.x, p.y, 'dash');
     }
@@ -627,17 +692,15 @@ export class World {
     if (this.debug.noclip && a.kind === 'player') {
       return x > 0 && y > 0 && x < d.w * TILE && y < d.h * TILE;
     }
-    const blocked = this.blocked;
     const check = (px, py) => {
       const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
       if (tx < 0 || ty < 0 || tx >= d.w || ty >= d.h) return true;
-      const i = ty * d.w + tx;
-      if (d.tiles[i] === 0) return true;
-      return !a.flying && blocked[i] === 1;
+      return d.tiles[ty * d.w + tx] === 0;
     };
     if (check(x - r, y - r) || check(x + r, y - r) || check(x - r, y + r) || check(x + r, y + r) || check(x, y)) {
       return false;
     }
+    if (!a.flying && this.hitsSolidRect(a, x, y)) return false;
 
     // Rim test, applied to the body centre only. Testing the whole hitbox would
     // reject nearly every tile that touches a wall and carve the floor to
@@ -1461,18 +1524,46 @@ export class World {
   }
 
   /**
-   * Traps are only drawn once somebody is close enough to notice them. Computed
-   * once per frame here rather than per-trap in the renderer, and it doubles as
-   * "this trap has now been seen" so it stays visible afterwards.
+   * Traps fade in when somebody is close and fade back out when they leave, so
+   * a cleared room does not stay littered with markers. `vis` is a 0-1 alpha
+   * the renderer uses directly.
    */
-  updateTrapVisibility() {
+  updateTrapVisibility(dt) {
     const players = this.players.filter((p) => !p.dead);
     for (const prop of this.dungeon.props) {
-      if (prop.type !== 'trap' || prop.spent || prop.seen) continue;
+      if (prop.type !== 'trap') continue;
+      let near = false;
       const cx = prop.x * TILE + TILE / 2;
       const cy = prop.y * TILE + TILE / 2;
       for (const p of players) {
-        if (dist2(cx, cy, p.x, p.y) < TRAP_REVEAL_RANGE * TRAP_REVEAL_RANGE) { prop.seen = true; break; }
+        if (dist2(cx, cy, p.x, p.y) < TRAP_REVEAL_RANGE * TRAP_REVEAL_RANGE) { near = true; break; }
+      }
+      const target = near && !prop.spent ? 1 : 0;
+      const v = prop.vis ?? 0;
+      prop.vis = v + clamp(target - v, -dt * 3, dt * 4);
+      if (near && !prop.spent) this.discover('trap', prop.kind);
+    }
+  }
+
+  /**
+   * Dungeon compendium. Anything a player gets close enough to see is recorded
+   * once, and the entry stays for the rest of the run.
+   */
+  discover(kind, id) {
+    const set = kind === 'trap' ? this.codex.traps : this.codex.monsters;
+    if (set.includes(id)) return;
+    set.push(id);
+    this.emitEvent({ t: 'codex', k: kind, id });
+    bus.emit('codex:new', { kind, id });
+  }
+
+  /** Record every monster close enough to have been seen this tick. */
+  updateCodex() {
+    for (const m of this.monsters) {
+      if (m.dead || this.codex.monsters.includes(m.monsterId)) continue;
+      for (const p of this.players) {
+        if (p.dead) continue;
+        if (dist2(m.x, m.y, p.x, p.y) < CODEX_RANGE * CODEX_RANGE) { this.discover('monster', m.monsterId); break; }
       }
     }
   }

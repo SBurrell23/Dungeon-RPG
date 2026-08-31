@@ -90,6 +90,8 @@ export class Hud {
     const s = player.stats;
     $('#plevel').textContent = `Lv ${player.level}`;
     setBar('#hpfill', '#hptext', player.hp, s.maxHp, (a, b) => `${Math.ceil(Math.max(0, a))} / ${Math.round(b)}`);
+    // Below a quarter health the bar pulses - readable without looking at it.
+    $('#hpfill').parentElement.classList.toggle('low', player.hp / s.maxHp < 0.25);
     setBar('#mpfill', '#mptext', player.mp, s.maxMp, (a, b) => `${Math.ceil(a)} / ${Math.round(b)}`);
     if (player.level >= MAX_LEVEL) {
       setBar('#xpfill', '#xptext', 1, 1, () => 'MAX');
@@ -203,8 +205,8 @@ export class Hud {
     if (obj.dataset.sig === sig) return;
     obj.dataset.sig = sig;
     obj.innerHTML = prog > 0
-      ? `Holding the descent marker &mdash; <b>${(DESCENT_TIME - prog).toFixed(1)}s</b> left. Do not attack or get hit.`
-      : 'Find the <b>descent marker</b> and stand on it for <b>10 seconds</b> without attacking or taking a hit.';
+      ? `Unlocking the descent &mdash; <b>${(DESCENT_TIME - prog).toFixed(1)}s</b> left`
+      : 'Find the descent to the next floor.';
   }
 }
 

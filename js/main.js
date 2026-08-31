@@ -10,7 +10,7 @@ import { getClass } from './game/classes.js';
 import { recomputeStats, xpToNext } from './game/stats.js';
 import { getAbility, ABILITIES } from './game/abilities.js';
 import { SELL_RATE, BUY_MARKUP, INVENTORY_SIZE, rollEquipment, makeConsumable } from './game/items.js';
-import { bossForFloor } from './game/monsters.js';
+import { bossForFloor, MONSTERS, TRAP_INFO } from './game/monsters.js';
 import { saveWorld, loadIntoWorld, hasSave, readSaveMeta, deleteSave } from './game/save.js';
 
 import { Camera } from './render/camera.js';
@@ -306,18 +306,9 @@ function startWorld(world, floorNo) {
   hideScreen('screen-menu');
   setHudVisible(true);
   clearLog();
-  settleHint();
   toast(`Floor ${floorNo} - ${world.dungeon.theme.name}`, 2600);
 }
 
-/** Show the control reminder brightly at the start of a run, then dim it. */
-let hintTimer = null;
-function settleHint() {
-  const hint = $('#hint');
-  hint.classList.remove('settled');
-  clearTimeout(hintTimer);
-  hintTimer = setTimeout(() => hint.classList.add('settled'), 12000);
-}
 
 function afterFloorLoad() {
   const world = game.world;
@@ -330,6 +321,7 @@ function afterFloorLoad() {
   world.localPlayer = game.localPlayer;
   world.listener = game.localPlayer;
   game.panels.setPlayer(game.localPlayer);
+  game.panels.setWorld(world);
   if (game.localPlayer) camera.snapTo(game.localPlayer.x, game.localPlayer.y);
   setDepth(world.floorNo);
   hud.lastSignature = '';
@@ -360,7 +352,6 @@ function resumeSavedRun() {
   closeAllModals();
   setHudVisible(true);
   clearLog();
-  settleHint();
   toast(`Resumed on floor ${world.floorNo}`, 2600);
 
   if (game.isOnline) {
@@ -574,6 +565,7 @@ function bindHotkeys() {
     if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); game.panels.toggleInventory('inv'); }
     else if (e.code === 'KeyC') game.panels.toggleInventory('stats');
     else if (e.code === 'KeyP') game.panels.toggleInventory('spells');
+    else if (e.code === 'KeyB') game.panels.toggleInventory('codex');
     else if (e.code === 'KeyM') toggleMap(!isScreenOpen('screen-map'));
     else if (e.code === 'Space' && game.localPlayer?.downed) cycleSpectate();
   });
@@ -778,6 +770,13 @@ function bindGameEvents() {
   bus.on('sfx', (name, vol) => playSfx(name, vol));
   bus.on('log', ({ text, color }) => pushLogLine(text, color));
 
+  // New compendium entries are worth a line, but not a modal.
+  bus.on('codex:new', ({ kind, id }) => {
+    const name = kind === 'trap' ? TRAP_INFO[id]?.name : MONSTERS[id]?.name;
+    if (name) pushLogLine(`Compendium: ${name}`, '#8fd8ff');
+    if (isScreenOpen('screen-inventory')) game.panels.refresh();
+  });
+
   bus.on('ui:shop', ({ npcId, player }) => {
     if (player !== game.localPlayer) return;
     const npc = game.world.npcs.find((n) => n.id === npcId);
@@ -858,7 +857,6 @@ net.on(MSG.START, (d) => {
   hideScreen('screen-lobby');
   setHudVisible(true);
   clearLog();
-  settleHint();
   toast(`Floor 1 - ${world.dungeon.theme.name}`, 2600);
 });
 
@@ -1131,8 +1129,13 @@ function render(alpha, dt) {
   if (game.mode === 'boot' || !world) return;
 
   const viewTarget = spectateTarget() || game.localPlayer;
-  camera.update(dt, viewTarget, game.aimWorld, world.dungeon, game.shakeEnabled ? world.shakeAmount : 0);
-  renderer.render(world, camera, game.localPlayer, dt);
+  // Follow the interpolated position, otherwise the camera lags the sprite by
+  // up to one simulation tick and the whole scene shears.
+  const follow = viewTarget
+    ? { x: renderer.drawX(viewTarget), y: renderer.drawY(viewTarget) }
+    : null;
+  camera.update(dt, follow, game.aimWorld, world.dungeon, game.shakeEnabled ? world.shakeAmount : 0);
+  renderer.render(world, camera, game.localPlayer, dt, alpha);
 
   if (game.mode === 'playing') {
     hud.update(world, game.localPlayer);

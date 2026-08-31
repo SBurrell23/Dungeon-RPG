@@ -57,11 +57,19 @@ export class Camera {
     }
   }
 
-  /** Apply the camera transform; caller is responsible for save/restore. */
+  /**
+   * Apply the camera transform; caller is responsible for save/restore.
+   *
+   * The translation is snapped to whole device pixels. With nearest-neighbour
+   * scaling a fractional camera offset makes every terrain pixel shimmer as it
+   * rounds one way or the other, which reads as the whole world vibrating
+   * while you walk.
+   */
   apply(ctx) {
-    ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
-    ctx.scale(this.zoom, this.zoom);
-    ctx.translate(-(this.x + this.shakeX), -(this.y + this.shakeY));
+    const z = this.zoom;
+    ctx.translate(Math.round(this.canvas.width / 2), Math.round(this.canvas.height / 2));
+    ctx.scale(z, z);
+    ctx.translate(-Math.round((this.x + this.shakeX) * z) / z, -Math.round((this.y + this.shakeY) * z) / z);
   }
 
   screenToWorld(sx, sy) {

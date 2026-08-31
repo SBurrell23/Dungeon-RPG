@@ -264,6 +264,29 @@ export function levelForSpawn(floorNo, roomDepth, elite, boss) {
   return clamp(lvl, 1, 60);
 }
 
+/**
+ * Trap reference text for the compendium. Kept beside the bestiary so all the
+ * "what is this thing" copy lives in one place.
+ */
+export const TRAP_INFO = {
+  spike: {
+    name: 'Spike Plate', color: '#cfd6e2', persistent: false,
+    flavour: 'A pressure plate over a bed of blades. Springs once, hard, then the mechanism is spent.',
+  },
+  dart: {
+    name: 'Dart Grille', color: '#d8b070', persistent: false,
+    flavour: 'Bore holes packed with primed darts. Fires in every direction at once, so backing off does not help.',
+  },
+  flame: {
+    name: 'Flame Vent', color: '#ff8a3c', persistent: true,
+    flavour: 'A burner grate fed from below. It re-arms after a few seconds - route around it rather than through it.',
+  },
+  poison: {
+    name: 'Gas Vent', color: '#96e072', persistent: true,
+    flavour: 'A perforated cap over a pocket of rot. Leaves a lingering cloud and keeps venting; an antidote clears the worst.',
+  },
+};
+
 export const ELITE_PREFIX = ['Vicious', 'Scarred', 'Ancient', 'Bloodsoaked', 'Feral', 'Cursed', 'Grim'];
 
 /** Elites get a visible tint and a real stat bump, not just a bigger number. */

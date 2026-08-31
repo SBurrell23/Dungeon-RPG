@@ -71,6 +71,7 @@ export function saveWorld(world) {
         spent: p.spent || false,
       })),
       pickups: world.pickups.map((p) => ({ x: p.x, y: p.y, items: p.items })),
+      codex: world.codex,
       explored: encodeBits(world.explored),
       log: world.log.slice(-20).map((l) => ({ text: l.text, color: l.color })),
     };
@@ -201,6 +202,7 @@ export function loadIntoWorld(World, { bossForFloor } = {}) {
   }
 
   decodeBits(data.explored, world.explored);
+  if (data.codex) world.codex = { monsters: data.codex.monsters || [], traps: data.codex.traps || [] };
 
   // Merchant stock is deterministic from the seed and was already rebuilt by
   // loadFloor, so nothing to restore here.

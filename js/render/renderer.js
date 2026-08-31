@@ -41,6 +41,8 @@ export class Renderer {
     this.enableLighting = true;
     this.showHitboxes = false;
     this.time = 0;
+    // Blend factor between the last two simulation ticks; see drawX/drawY.
+    this.alpha = 1;
   }
 
   resize(w, h) {
@@ -50,8 +52,9 @@ export class Renderer {
     this.lightCanvas.height = Math.max(1, Math.ceil(h * this.lightScale));
   }
 
-  render(world, camera, localPlayer, dt) {
+  render(world, camera, localPlayer, dt, alpha = 1) {
     this.time += dt;
+    this.alpha = alpha;
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = VOID_COLOR;
@@ -147,7 +150,7 @@ export class Renderer {
           break;
         }
         case 'trap': {
-          if (p.spent || !p.seen) break;
+          if (!p.vis || p.vis < 0.02) break;
           this.drawTrap(ctx, p, px, py);
           break;
         }
@@ -204,49 +207,123 @@ export class Renderer {
   }
 
   /**
-   * Traps are drawn in JS rather than from the sheet so their state reads at a
-   * glance. Only called once a player has come close enough to spot the trap;
-   * an armed one pulses, a spent-but-persistent one sits dull.
+   * Traps, drawn in JS so their state always reads clearly.
+   *
+   * Each is a recessed stone plate with mechanism-specific detail, rather than
+   * an abstract marker: spikes are blades pushing through slots, darts are a
+   * grille of bore holes, flame is a burner grate, gas is a perforated vent.
+   * Alpha comes from `vis`, which the sim fades with proximity.
    */
   drawTrap(ctx, p, px, py) {
     const cx = px + TILE / 2, cy = py + TILE / 2;
+    const R = 17;
+    const armed = p.armed && !p.spent;
+    const pulse = 0.6 + 0.4 * Math.sin(this.time * 3.4 + p.x * 1.7 + p.y);
+
     ctx.save();
+    ctx.globalAlpha = clamp(p.vis ?? 1, 0, 1) * (armed ? 1 : 0.55);
 
-    const colors = {
-      spike: '#b9bfd0', dart: '#c8a26a', flame: '#ff7a3c', poison: '#8ad86a',
-    };
-    const c = colors[p.kind] || '#aaa';
-
-    ctx.strokeStyle = c;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 15, 0, TAU);
+    // Recessed plate: dark socket, stone face, chiselled highlight.
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    roundRect(ctx, cx - R - 1, cy - R - 1, (R + 1) * 2, (R + 1) * 2, 4);
+    ctx.fill();
+    ctx.fillStyle = '#4a4038';
+    roundRect(ctx, cx - R, cy - R, R * 2, R * 2, 3);
+    ctx.fill();
+    ctx.strokeStyle = '#6a5b4c';
+    ctx.lineWidth = 1;
+    roundRect(ctx, cx - R + 1.5, cy - R + 1.5, R * 2 - 3, R * 2 - 3, 2);
     ctx.stroke();
 
-    if (p.armed) {
-      ctx.globalAlpha *= 0.55 + 0.45 * Math.sin(this.time * 4 + p.x);
-    } else {
-      ctx.globalAlpha *= 0.5;
-    }
-    ctx.fillStyle = c;
+    const accent = { spike: '#cfd6e2', dart: '#d8b070', flame: '#ff8a3c', poison: '#96e072' }[p.kind] || '#ccc';
+
     if (p.kind === 'spike') {
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * TAU + Math.PI / 4;
+      // Blades rising through three slots.
+      ctx.fillStyle = '#241d18';
+      for (let i = -1; i <= 1; i++) ctx.fillRect(cx + i * 10 - 3, cy - 12, 6, 24);
+      ctx.fillStyle = accent;
+      for (let i = -1; i <= 1; i++) {
+        const h = armed ? 7 + pulse * 4 : 3;
         ctx.beginPath();
-        ctx.moveTo(cx + Math.cos(a) * 4, cy + Math.sin(a) * 4);
-        ctx.lineTo(cx + Math.cos(a + 0.4) * 11, cy + Math.sin(a + 0.4) * 11);
-        ctx.lineTo(cx + Math.cos(a - 0.4) * 11, cy + Math.sin(a - 0.4) * 11);
+        ctx.moveTo(cx + i * 10 - 3, cy + 6);
+        ctx.lineTo(cx + i * 10, cy + 6 - h * 2);
+        ctx.lineTo(cx + i * 10 + 3, cy + 6);
+        ctx.closePath();
         ctx.fill();
       }
     } else if (p.kind === 'dart') {
-      ctx.fillRect(cx - 9, cy - 2, 18, 4);
-      ctx.fillRect(cx - 2, cy - 9, 4, 18);
+      // A grille of bore holes, with primed darts glinting inside.
+      ctx.fillStyle = '#241d18';
+      for (let gy = -1; gy <= 1; gy++) {
+        for (let gx = -1; gx <= 1; gx++) {
+          ctx.beginPath();
+          ctx.arc(cx + gx * 10, cy + gy * 10, 3.2, 0, TAU);
+          ctx.fill();
+        }
+      }
+      if (armed) {
+        ctx.fillStyle = accent;
+        for (let gy = -1; gy <= 1; gy++) {
+          for (let gx = -1; gx <= 1; gx++) {
+            ctx.beginPath();
+            ctx.arc(cx + gx * 10, cy + gy * 10, 1.5, 0, TAU);
+            ctx.fill();
+          }
+        }
+      }
+    } else if (p.kind === 'flame') {
+      // Burner grate: slots with embers glowing between the bars.
+      ctx.fillStyle = '#241d18';
+      for (let i = -2; i <= 2; i++) ctx.fillRect(cx - 13, cy + i * 5 - 1.5, 26, 3);
+      if (armed) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha *= 0.35 + pulse * 0.45;
+        const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, R);
+        g.addColorStop(0, '#ffd8a0');
+        g.addColorStop(0.5, accent);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, TAU);
+        ctx.fill();
+      }
     } else {
+      // Gas vent: perforated cap with a slow seep.
+      ctx.fillStyle = '#241d18';
       ctx.beginPath();
-      ctx.arc(cx, cy, 7, 0, TAU);
+      ctx.arc(cx, cy, 11, 0, TAU);
       ctx.fill();
+      ctx.fillStyle = '#5b5147';
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * TAU + 0.4;
+        ctx.beginPath();
+        ctx.arc(cx + Math.cos(a) * 6, cy + Math.sin(a) * 6, 2, 0, TAU);
+        ctx.fill();
+      }
+      if (armed) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha *= 0.25 + pulse * 0.3;
+        const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, R);
+        g.addColorStop(0, accent);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, TAU);
+        ctx.fill();
+      }
     }
     ctx.restore();
+
+    // A hairline of danger colour around an armed plate.
+    if (armed) {
+      ctx.save();
+      ctx.globalAlpha = clamp(p.vis ?? 1, 0, 1) * (0.25 + pulse * 0.35);
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1.4;
+      roundRect(ctx, cx - R, cy - R, R * 2, R * 2, 3);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   drawZones(ctx, world) {
@@ -351,9 +428,22 @@ export class Renderer {
     for (const a of drawables) this.drawActor(ctx, a, world, localPlayer);
   }
 
+  /**
+   * Where to draw a body this frame.
+   *
+   * The simulation is a fixed 60 Hz but frames arrive at the display rate, so
+   * drawing the raw position makes movement step. Blending the previous tick's
+   * position toward the current one by the loop's leftover alpha turns that
+   * back into smooth motion.
+   */
+  drawX(a) { return a.px === undefined ? a.x : a.px + (a.x - a.px) * this.alpha; }
+  drawY(a) { return a.py === undefined ? a.y : a.py + (a.y - a.py) * this.alpha; }
+
   drawActor(ctx, a, world, localPlayer) {
     const scale = a.scale || 1;
     const shadowR = (a.radius || 13) * 0.95;
+    const ax = this.drawX(a);
+    const ay = this.drawY(a);
 
     // Cast our own shadow rather than using the pack's baked-in one, so it stays
     // put when the sprite mirrors and so lighting stays consistent.
@@ -361,7 +451,7 @@ export class Renderer {
     ctx.globalAlpha = a.dead ? 0.18 : 0.34;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.ellipse(a.x, a.y + shadowR * 0.55, shadowR, shadowR * 0.45, 0, 0, TAU);
+    ctx.ellipse(ax, ay + shadowR * 0.55, shadowR, shadowR * 0.45, 0, 0, TAU);
     ctx.fill();
     ctx.restore();
 
@@ -378,7 +468,7 @@ export class Renderer {
 
     const size = SPRITE * scale * ACTOR_SCALE;
     ctx.save();
-    ctx.translate(a.x, a.y);
+    ctx.translate(ax, ay);
     if (facesLeft(a)) ctx.scale(-1, 1);
     if (a.dead) ctx.globalAlpha = Math.max(0.25, 1 - (a.deathTimer || 0) / 30);
     ctx.drawImage(sheet.img, frame * SPRITE, 0, SPRITE, SPRITE, -size / 2, -size / 2, size, size);
@@ -397,7 +487,7 @@ export class Renderer {
       ctx.strokeStyle = '#9fd8ff';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(a.x, a.y, (a.radius || 13) + 6, 0, TAU);
+      ctx.arc(ax, ay, (a.radius || 13) + 6, 0, TAU);
       ctx.stroke();
       ctx.restore();
     }
@@ -509,12 +599,13 @@ export class Renderer {
   drawProjectiles(ctx, world, camera) {
     for (const pr of world.projectiles) {
       if (!camera.isVisible(pr.x, pr.y, 60)) continue;
+      const prx = this.drawX(pr), pry = this.drawY(pr);
       if (pr.sprite) {
         const img = this.assets.img(pr.sprite);
         if (img) {
           const s = SPRITE * (pr.scale || 1);
           ctx.save();
-          ctx.translate(pr.x, pr.y);
+          ctx.translate(prx, pry);
           ctx.rotate(pr.angle);
           ctx.drawImage(img, -s / 2, -s / 2, s, s);
           ctx.restore();
@@ -525,21 +616,21 @@ export class Renderer {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       const r = pr.radius * 2.4;
-      const g = ctx.createRadialGradient(pr.x, pr.y, 0, pr.x, pr.y, r);
+      const g = ctx.createRadialGradient(prx, pry, 0, prx, pry, r);
       g.addColorStop(0, '#ffffff');
       g.addColorStop(0.35, color);
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(pr.x, pr.y, r, 0, TAU);
+      ctx.arc(prx, pry, r, 0, TAU);
       ctx.fill();
       // Motion streak behind the bolt.
       ctx.globalAlpha = 0.5;
       ctx.strokeStyle = color;
       ctx.lineWidth = pr.radius;
       ctx.beginPath();
-      ctx.moveTo(pr.x, pr.y);
-      ctx.lineTo(pr.x - Math.cos(pr.angle) * 22, pr.y - Math.sin(pr.angle) * 22);
+      ctx.moveTo(prx, pry);
+      ctx.lineTo(prx - Math.cos(pr.angle) * 22, pry - Math.sin(pr.angle) * 22);
       ctx.stroke();
       ctx.restore();
     }
@@ -797,6 +888,17 @@ function facesLeft(a) {
   else if (c < -FACE_DEADZONE) a.faceLeft = true;
   else if (c > FACE_DEADZONE) a.faceLeft = false;
   return a.faceLeft;
+}
+
+/** Rounded rectangle path helper - used by the trap plates. */
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 const rgbCache = new Map();
