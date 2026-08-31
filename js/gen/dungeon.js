@@ -1164,17 +1164,37 @@ function populate(rng, d, floorNo, partySize) {
   const rooms = d.rooms.filter((r) => r.kind !== 'entrance' && r.kind !== 'shop' && r.kind !== 'boss');
   const totalWeight = rooms.reduce((s, r) => s + (1 + r.depth * 0.6), 0) || 1;
 
+  // Every room is worth walking into. The budget used to be shared out purely
+  // by depth and then hard-stopped once spent, which left the shallow rooms of
+  // an early floor with one or two monsters and the tail end of the room list
+  // with none at all. The garrison is placed first and the depth-weighted share
+  // is stacked on top of it.
+  // On a deep floor the garrison alone can consume the whole budget, which
+  // would flatten every room to the same two monsters. Keep a share back so the
+  // depth weighting still has something to bite on.
+  const MIN_PER_ROOM = 2;
+  const extra = Math.max(budget - MIN_PER_ROOM * rooms.length, budget * 0.35);
+
   for (const room of rooms) {
-    const share = ((1 + room.depth * 0.6) / totalWeight) * budget;
-    const packCount = Math.max(1, Math.round(share / 3.2));
-    const spots = room.tiles.filter(([x, y]) => Math.hypot(x - d.entrance.x, y - d.entrance.y) > 10);
+    const share = ((1 + room.depth * 0.6) / totalWeight) * extra;
+    const want = MIN_PER_ROOM + Math.round(share);
+
+    // Keep spawns off the doorstep, but never at the cost of an empty room: if
+    // the whole room sits near the entrance, use its furthest corner instead.
+    let spots = room.tiles.filter(([x, y]) => Math.hypot(x - d.entrance.x, y - d.entrance.y) > 8);
+    if (!spots.length) {
+      spots = room.tiles.slice().sort((a, b) =>
+        Math.hypot(b[0] - d.entrance.x, b[1] - d.entrance.y)
+        - Math.hypot(a[0] - d.entrance.x, a[1] - d.entrance.y)).slice(0, 4);
+    }
     if (!spots.length) continue;
     rng.shuffle(spots);
 
     let placed = 0;
-    for (let p = 0; p < packCount && placed < spots.length; p++) {
-      const packSize = rng.int(2, Math.min(5, 2 + Math.floor(floorNo / 2)));
-      const anchor = spots[placed++];
+    let cursor = 0;
+    while (placed < want && cursor < spots.length) {
+      const packSize = Math.min(want - placed, rng.int(2, Math.min(5, 2 + Math.floor(floorNo / 2))));
+      const anchor = spots[cursor++];
       for (let m = 0; m < packSize; m++) {
         const jitterX = anchor[0] + rng.int(-2, 2);
         const jitterY = anchor[1] + rng.int(-2, 2);
@@ -1188,11 +1208,9 @@ function populate(rng, d, floorNo, partySize) {
           tierBias: room.depth,
         });
         spent++;
-        if (spent >= budget) break;
+        placed++;
       }
-      if (spent >= budget) break;
     }
-    if (spent >= budget) break;
   }
 
   // Wandering monsters in the corridors keep travel tense.

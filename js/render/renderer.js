@@ -391,23 +391,28 @@ export class Renderer {
       const bob = Math.sin(p.bob) * 3;
       const glow = p.kind === 'bossLoot' ? '#ff9a2e' : '#ffd23f';
 
+      // A loose coin is a coin, not a treasure hoard - draw gold-only drops
+      // noticeably smaller than a piece of gear so the floor reads correctly.
+      const item = p.items.find((i) => i.type !== 'gold') || p.items[0];
+      const coinOnly = !p.items.some((i) => i.type !== 'gold');
+      const size = coinOnly ? 15 : 26;
+      const halo = coinOnly ? 20 : 34;
+
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.35 + 0.15 * Math.sin(this.time * 5);
-      const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, 34);
+      ctx.globalAlpha = (coinOnly ? 0.26 : 0.35) + 0.15 * Math.sin(this.time * 5);
+      const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, halo);
       g.addColorStop(0, glow);
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 34, 0, TAU);
+      ctx.arc(p.x, p.y, halo, 0, TAU);
       ctx.fill();
       ctx.restore();
 
-      const item = p.items.find((i) => i.type !== 'gold') || p.items[0];
       if (item && icons && item.icon) {
-        const s = 26;
         ctx.drawImage(icons, item.icon[0] * ICON_SIZE, item.icon[1] * ICON_SIZE, ICON_SIZE, ICON_SIZE,
-          p.x - s / 2, p.y - s / 2 + bob - 6, s, s);
+          p.x - size / 2, p.y - size / 2 + bob - (coinOnly ? 3 : 6), size, size);
       }
     }
   }

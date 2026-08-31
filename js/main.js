@@ -224,7 +224,6 @@ function bindMenu() {
 
   $('#opt-music').addEventListener('input', (e) => setMusicVolume(e.target.value / 100));
   $('#opt-sfx').addEventListener('input', (e) => setSfxVolume(e.target.value / 100));
-  $('#opt-zoom').addEventListener('input', (e) => { camera.targetZoom = e.target.value / 100; });
   $('#opt-shake').addEventListener('change', (e) => { game.shakeEnabled = e.target.checked; });
 
   $('#btn-closemap').addEventListener('click', () => toggleMap(false));

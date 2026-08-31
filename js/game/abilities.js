@@ -36,7 +36,7 @@ export const ABILITIES = {
     mana: 1, cooldown: 0.40, anim: 'attack', swings: ['attack', 'attack2'],
     cast(ctx) {
       ctx.world.melee(ctx.actor, {
-        range: 38, arc: 0.42, coef: 0.70, power: P.melee, type: 'phys',
+        range: 48, arc: 0.42, coef: 0.70, power: P.melee, type: 'phys',
         knockback: 55, sfx: 'swing', fx: 'stab',
       });
     },
