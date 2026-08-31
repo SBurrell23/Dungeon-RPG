@@ -7,9 +7,9 @@ import { clamp, dist2 } from './core/util.js';
 
 import { World, FLOOR_COUNT } from './game/world.js';
 import { getClass } from './game/classes.js';
-import { recomputeStats } from './game/stats.js';
-import { getAbility } from './game/abilities.js';
-import { SELL_RATE } from './game/items.js';
+import { recomputeStats, xpToNext } from './game/stats.js';
+import { getAbility, ABILITIES } from './game/abilities.js';
+import { SELL_RATE, BUY_MARKUP, INVENTORY_SIZE, rollEquipment, makeConsumable } from './game/items.js';
 import { bossForFloor } from './game/monsters.js';
 import { saveWorld, loadIntoWorld, hasSave, readSaveMeta, deleteSave } from './game/save.js';
 
@@ -65,6 +65,7 @@ const game = {
   lastInputSend: 0,
   lastSave: 0,
   shakeEnabled: true,
+  revealAll: false,
   aimWorld: { x: 0, y: 0 },
 };
 
@@ -89,6 +90,8 @@ async function boot() {
   bindMenu();
   bindHotkeys();
   bindGameEvents();
+  bindDevConsole();
+  bindContextMenuGuards();
 
   await assets.loadAll((done, total, key) => {
     $('#loadfill').style.width = `${(done / total) * 100}%`;
@@ -464,7 +467,7 @@ function applyEquip(p, uid) {
 function applyUnequip(p, slot) {
   const item = p.equipment[slot];
   if (!item) return;
-  if (p.inventory.length >= 40) { toast('Bag is full'); playSfx('error'); return; }
+  if (p.inventory.length >= INVENTORY_SIZE) { toast('Bag is full'); playSfx('error'); return; }
   p.equipment[slot] = null;
   p.inventory.push(item);
   recomputeStats(p, getClass(p.classId));
@@ -482,10 +485,14 @@ function applyDrop(p, uid) {
   const idx = p.inventory.findIndex((i) => i.uid === uid);
   if (idx < 0) return;
   const [item] = p.inventory.splice(idx, 1);
+  // `dropperId` stops the dropper instantly re-collecting it; anyone else can
+  // take it straight away, which is how the party trades gear.
   game.world.pickups.push({
     id: Math.floor(Math.random() * 1e9), kind: 'loot',
-    x: p.x, y: p.y + 24, items: [item], bob: 0, age: -1.2, dead: false,
+    x: p.x, y: p.y + 28, items: [item], bob: 0, age: 0, dead: false,
+    dropperId: p.id, armed: false,
   });
+  game.world.pushLog(`${p.name} dropped ${item.name}`, '#cfcfcf');
 }
 
 function applyLearnTome(p, uid) {
@@ -513,7 +520,7 @@ function applyBuy(p, npcId, index) {
   if (!npc) return;
   const entry = npc.stock[index];
   if (!entry || entry.qty <= 0) return;
-  const price = Math.round(entry.item.value * 1.35);
+  const price = Math.round(entry.item.value * BUY_MARKUP);
   if (p.gold < price) { toast('Not enough gold'); playSfx('error'); return; }
   const copy = JSON.parse(JSON.stringify(entry.item));
   copy.uid = Math.floor(Math.random() * 1e9) + 1e9;
@@ -538,6 +545,14 @@ function applySell(p, uid) {
 // Hotkeys
 // ---------------------------------------------------------------------------
 
+function bindContextMenuGuards() {
+  // The canvas handles this itself; the panels need it too so right-click-to-drop
+  // does not also open the browser menu on top of the inventory.
+  for (const sel of ['#overlay-root', '#hud', '#tooltip']) {
+    document.querySelector(sel)?.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+}
+
 function bindHotkeys() {
   window.addEventListener('keydown', (e) => {
     const t = e.target;
@@ -549,6 +564,11 @@ function bindHotkeys() {
       if (game.mode === 'playing') showScreen('screen-options', { exclusive: false });
       return;
     }
+    if (e.code === 'Backquote' || (e.code === 'KeyD' && e.ctrlKey && e.shiftKey)) {
+      e.preventDefault();
+      toggleDevConsole();
+      return;
+    }
     if (game.mode !== 'playing') return;
 
     if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); game.panels.toggleInventory('inv'); }
@@ -557,6 +577,153 @@ function bindHotkeys() {
     else if (e.code === 'KeyM') toggleMap(!isScreenOpen('screen-map'));
     else if (e.code === 'Space' && game.localPlayer?.downed) cycleSpectate();
   });
+}
+
+// ---------------------------------------------------------------------------
+// Dev console
+// ---------------------------------------------------------------------------
+
+/**
+ * Testing tools, opened with ` or Ctrl+Shift+D.
+ *
+ * Everything here drives `world.debug` flags or calls the same verbs normal
+ * play uses, so nothing in the simulation has a special "cheat" path to keep in
+ * sync. Host-only: in multiplayer a client's flags would just be overwritten by
+ * the next snapshot.
+ */
+function bindDevConsole() {
+  const toggles = {
+    'dev-god': 'god', 'dev-speed': 'speed', 'dev-noclip': 'noclip', 'dev-onehit': 'oneHit',
+  };
+  for (const [id, flag] of Object.entries(toggles)) {
+    $(`#${id}`).addEventListener('change', (e) => {
+      if (game.world) game.world.debug[flag] = e.target.checked;
+    });
+  }
+  $('#dev-reveal').addEventListener('change', (e) => {
+    game.revealAll = e.target.checked;
+    if (e.target.checked && game.world) game.world.explored.fill(1);
+  });
+  $('#dev-nolight').addEventListener('change', (e) => { renderer.enableLighting = !e.target.checked; });
+  $('#dev-close').addEventListener('click', () => hideScreen('screen-dev'));
+
+  const floors = $('#dev-floors');
+  for (let f = 1; f <= FLOOR_COUNT; f++) {
+    const b = el('button', 'btn small', String(f));
+    b.addEventListener('click', () => devJumpToFloor(f));
+    floors.appendChild(b);
+  }
+
+  const p = () => game.localPlayer;
+  const w = () => game.world;
+  const actions = {
+    'dev-descend': () => { w().stairsUnlocked = true; doDescend(); },
+    'dev-unlock': () => { w().stairsUnlocked = true; toast('Stairs unlocked'); },
+    // Killing a slime spawns two more, so sweep until nothing is left rather
+    // than making the tester click the button four times.
+    'dev-killroom': () => {
+      for (let pass = 0; pass < 8; pass++) {
+        const guards = w().bossRoomGuards();
+        if (!guards.length) break;
+        for (const m of guards) w().handleDeath(m, p());
+      }
+      w().checkBossRoom();
+      toast('Boss chamber cleared');
+    },
+    'dev-killall': () => {
+      for (let pass = 0; pass < 8; pass++) {
+        const alive = w().monsters.filter((m) => !m.dead);
+        if (!alive.length) break;
+        for (const m of alive) w().handleDeath(m, p());
+      }
+      w().checkBossRoom();
+      toast('Floor cleared');
+    },
+    'dev-level': () => { for (let i = 0; i < 5; i++) w().giveXp(p(), xpToNext(p().level)); },
+    'dev-gold': () => { p().gold += 500; toast('+500 gold'); },
+    'dev-loot': () => {
+      const rng = w().rng;
+      for (let i = 0; i < 5; i++) {
+        w().addToInventory(p(), rollEquipment(rng, { floor: w().floorNo, magicFind: 3 }));
+      }
+      game.panels.refresh();
+    },
+    'dev-tomes': () => {
+      for (const ab of Object.values(ABILITIES)) {
+        if (ab.tome && !p().knownSpells.includes(ab.id)) p().knownSpells.push(ab.id);
+      }
+      game.panels.refresh();
+      toast('All spells learned');
+    },
+    'dev-potions': () => {
+      for (const id of ['healthPotion', 'manaPotion', 'greaterHealthPotion', 'greaterManaPotion', 'revivePotion']) {
+        w().addToInventory(p(), makeConsumable(id, 10));
+      }
+      game.panels.refresh();
+    },
+    'dev-heal': () => {
+      for (const ally of w().players) {
+        if (ally.downed) w().revivePlayer(ally, 1);
+        ally.hp = ally.stats.maxHp;
+        ally.mp = ally.stats.maxMp;
+        ally.cooldowns = {};
+      }
+    },
+    'dev-tostairs': () => devTeleportTo('stairs'),
+    'dev-toshop': () => devTeleportTo('merchant'),
+  };
+  for (const [id, fn] of Object.entries(actions)) {
+    $(`#${id}`).addEventListener('click', () => {
+      if (!game.world || !game.localPlayer) return;
+      fn();
+      updateDevInfo();
+    });
+  }
+}
+
+function devTeleportTo(propType) {
+  const world = game.world;
+  const prop = world.dungeon.props.find((x) => x.type === propType);
+  if (!prop) { toast(`No ${propType} on this floor`); return; }
+  const c = world.dungeon.tileCenter(prop.x, prop.y);
+  const spot = world.findStandableSpot(c.x, c.y + 48, game.localPlayer) || c;
+  game.localPlayer.x = spot.x;
+  game.localPlayer.y = spot.y;
+  camera.snapTo(spot.x, spot.y);
+}
+
+function devJumpToFloor(n) {
+  const world = game.world;
+  if (!world || (game.isOnline && !net.isHost)) return;
+  world.loadFloor(n);
+  afterFloorLoad();
+  if (game.revealAll) world.explored.fill(1);
+  toast(`Floor ${n} - ${world.dungeon.theme.name}`, 2400);
+  if (game.isOnline && net.isHost) {
+    net.broadcast(MSG.FLOOR, buildFloorManifest(world));
+    sendAllSelf();
+  }
+  updateDevInfo();
+}
+
+function updateDevInfo() {
+  const world = game.world;
+  const p = game.localPlayer;
+  if (!world || !p) { $('#dev-info').textContent = 'No run in progress.'; return; }
+  $('#dev-info').innerHTML = [
+    `floor <b>${world.floorNo}</b> (${world.dungeon.theme.name}) &middot; seed <b>${world.seed}</b>`,
+    `monsters alive <b>${world.monsterCount()}</b> &middot; guarding stairs <b>${world.bossRoomGuards().length}</b> &middot; stairs <b>${world.stairsUnlocked ? 'open' : 'sealed'}</b>`,
+    `${p.name}: level <b>${p.level}</b>, ${Math.round(p.hp)}/${Math.round(p.stats.maxHp)} hp, <b>${p.gold}</b>g, bag ${p.inventory.length}/${INVENTORY_SIZE}`,
+    `rooms <b>${world.dungeon.rooms.length}</b> &middot; props <b>${world.dungeon.props.length}</b> &middot; pickups <b>${world.pickups.length}</b>`,
+  ].join('<br>');
+}
+
+function toggleDevConsole() {
+  if (isScreenOpen('screen-dev')) { hideScreen('screen-dev'); return; }
+  if (game.mode !== 'playing') return;
+  if (game.isOnline && !net.isHost) { toast('Dev console is host-only'); return; }
+  updateDevInfo();
+  showScreen('screen-dev', { exclusive: false });
 }
 
 function toggleMap(open) {
@@ -890,6 +1057,7 @@ function update(dt) {
     }
   }
 
+  if (game.revealAll) world.explored.fill(1);
   if (game.minimap) game.minimap.update();
 
   // Host: ship state and autosave.

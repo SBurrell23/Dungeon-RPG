@@ -216,6 +216,46 @@
       </div>
     </section>
 
+    <!-- Developer console. Opened with ` (backquote) or Ctrl+Shift+D. -->
+    <section id="screen-dev" class="screen">
+      <div class="panel devpanel">
+        <h2>Dev Console</h2>
+        <p class="sub">Testing tools. Toggle with <b>`</b> or <b>Ctrl+Shift+D</b>.</p>
+
+        <h3>Toggles</h3>
+        <div class="devgrid">
+          <label class="check"><input type="checkbox" id="dev-god"><span>God mode (no damage, free spells)</span></label>
+          <label class="check"><input type="checkbox" id="dev-speed"><span>Sonic speed (3x movement)</span></label>
+          <label class="check"><input type="checkbox" id="dev-reveal"><span>Reveal whole map</span></label>
+          <label class="check"><input type="checkbox" id="dev-noclip"><span>Noclip (walk through walls)</span></label>
+          <label class="check"><input type="checkbox" id="dev-onehit"><span>One-hit kills</span></label>
+          <label class="check"><input type="checkbox" id="dev-nolight"><span>Disable dynamic lighting</span></label>
+        </div>
+
+        <h3>Actions</h3>
+        <div class="devgrid">
+          <button class="btn small" id="dev-descend">Unlock stairs + descend</button>
+          <button class="btn small" id="dev-unlock">Unlock stairs only</button>
+          <button class="btn small" id="dev-killroom">Kill boss chamber</button>
+          <button class="btn small" id="dev-killall">Kill everything on floor</button>
+          <button class="btn small" id="dev-level">+5 levels</button>
+          <button class="btn small" id="dev-gold">+500 gold</button>
+          <button class="btn small" id="dev-loot">Roll 5 items</button>
+          <button class="btn small" id="dev-tomes">Learn all spells</button>
+          <button class="btn small" id="dev-potions">Stock potions</button>
+          <button class="btn small" id="dev-heal">Full heal party</button>
+          <button class="btn small" id="dev-tostairs">Teleport to stairs</button>
+          <button class="btn small" id="dev-toshop">Teleport to merchant</button>
+        </div>
+
+        <h3>Jump to floor</h3>
+        <div class="devgrid floors" id="dev-floors"></div>
+
+        <div class="devinfo mono small dim" id="dev-info"></div>
+        <button class="btn ghost close" id="dev-close">Close (`)</button>
+      </div>
+    </section>
+
     <section id="screen-spectate" class="screen passthrough">
       <div class="spectate-bar">
         <span class="dead">YOU HAVE FALLEN</span>

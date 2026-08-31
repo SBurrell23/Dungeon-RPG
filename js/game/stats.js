@@ -106,10 +106,12 @@ export function recomputeStats(actor, classDef) {
 
   // Weapon damage is the spine of the number; primaries scale it rather than
   // replace it, which keeps upgrades feeling meaningful at every level.
+  // These coefficients are deliberately modest - combat should be a fight, not
+  // a one-click delete, so a grunt survives a few swings on every floor.
   const dmgBase = weaponDmg + mods.damage;
-  s.attackPower = (dmgBase + str * 1.15) * (1 + mods.damagePct);
-  s.rangedPower = (dmgBase + dex * 1.15) * (1 + mods.damagePct);
-  s.spellPower = (dmgBase * 0.65 + int * 1.55) * (1 + mods.damagePct);
+  s.attackPower = (dmgBase + str * 0.85) * (1 + mods.damagePct);
+  s.rangedPower = (dmgBase + dex * 0.85) * (1 + mods.damagePct);
+  s.spellPower = (dmgBase * 0.5 + int * 1.15) * (1 + mods.damagePct);
 
   s.critChance = clamp(0.04 + dex * 0.0035 + mods.critChance, 0, 0.75);
   s.critMult = 1.65 + mods.critMult;

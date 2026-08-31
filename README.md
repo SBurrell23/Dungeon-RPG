@@ -45,6 +45,10 @@ entirely.
 | `M` | Full floor map |
 | `Space` | While downed: switch which ally you are watching |
 | `Esc` | Options, or close the open panel |
+| `` ` `` | Dev console (testing tools) |
+
+Right-click an item in your bag to **drop it on the ground**, where a teammate can
+pick it up. That is how the party trades gear.
 
 ---
 
@@ -206,8 +210,13 @@ lines rather than a new system.
 `stats.js` carries the numbers that matter. They were fitted against the actual monster
 budget per floor:
 
-- A single grunt takes **1.5–2.5 seconds** of focused attention on every floor. What
+- A single grunt takes **1–3 seconds** of focused attention on every floor. What
   changes with depth is how hard it hits and how many friends it brought.
+- Health and mana potions sit on **shared 14–20 second cooldowns** per kind, so a
+  stack of twenty is not a second health bar.
+- Loot is deliberately scarce: roughly **7 items on floor 1 rising to 22 on floor 10**
+  per player, and about **3,000 gold across a whole run** against a top-tier item
+  price of ~370g.
 - A party clearing ~88% of each floor arrives at roughly level **3, 4, 6, 9, 11, 16,
   20, 24, 28, 32** on floors 1–10.
 - Bosses run **30–60 seconds** for a full party; their health scales with party size so
@@ -239,6 +248,15 @@ item's art is derived from its tier and rarity, so new tiers cost nothing.
 
 **A new floor theme** — add to `THEMES` in `gen/dungeon.js`: a base floor variant, two
 or three tonally-close accents and an ambient light colour.
+
+### Dev console
+
+Press `` ` `` (or Ctrl+Shift+D) mid-run for the testing panel: god mode, noclip,
+one-hit kills, 3x speed, reveal map, jump to any floor, unlock or clear the boss
+chamber, grant levels/gold/loot/tomes, and teleport to the stairs or the merchant.
+
+It is host-only, and everything in it drives `world.debug` flags or calls the same
+verbs normal play uses - there is no separate "cheat" code path to keep in sync.
 
 ### Debugging
 

@@ -14,6 +14,9 @@ import { clamp } from '../core/util.js';
 
 export const SLOTS = ['weapon', 'offhand', 'head', 'chest', 'gloves', 'boots', 'belt', 'amulet', 'ring1', 'ring2'];
 
+/** Bag capacity. Loot is scarce enough that this is generous, not a constraint. */
+export const INVENTORY_SIZE = 50;
+
 export const SLOT_LABEL = {
   weapon: 'Weapon', offhand: 'Off-hand', head: 'Head', chest: 'Chest',
   gloves: 'Hands', boots: 'Feet', belt: 'Waist', amulet: 'Neck',
@@ -212,63 +215,86 @@ export function iconFor(item) {
 }
 
 export function itemValue(item) {
-  if (item.type === 'consumable') return CONSUMABLES[item.id]?.value ?? 10;
-  if (item.type === 'tome') return 220 + (getAbility(item.abilityId)?.mana || 0) * 6;
+  if (item.type === 'consumable') return CONSUMABLES[item.id]?.value ?? 6;
+  if (item.type === 'tome') return 90 + (getAbility(item.abilityId)?.mana || 0) * 2;
   const r = RARITY_BY_ID[item.rarity] || RARITY[0];
-  const base = 18 + item.tier * 26;
-  return Math.round(base * r.mult * (1 + item.affixes.length * 0.28));
+  // Kept deliberately low: gold should be something you save up, not something
+  // that piles up faster than you can spend it.
+  const base = 8 + item.tier * 9;
+  return Math.round(base * r.mult * (1 + item.affixes.length * 0.25));
 }
 
 // ---------------------------------------------------------------------------
 // Consumables
 // ---------------------------------------------------------------------------
 
+/**
+ * Consumables.
+ *
+ * `group` and `cooldown` put every potion of a kind on a shared timer, so a
+ * fight cannot be won by chain-drinking a stack of twenty. Health and mana are
+ * separate groups - being out of one should not lock out the other.
+ */
 export const CONSUMABLES = {
   healthPotion: {
-    id: 'healthPotion', name: 'Health Potion', icon: ICON.potionHp, stack: 20, value: 45,
-    desc: 'Restores 35% of maximum health.',
+    id: 'healthPotion', name: 'Health Potion', icon: ICON.potionHp, stack: 20, value: 22,
+    group: 'health', cooldown: 14,
+    desc: 'Restores 35% of maximum health. 14s cooldown, shared with all health potions.',
     use: (world, actor) => world.healActor(actor, actor.stats.maxHp * 0.35, 'potion'),
   },
   greaterHealthPotion: {
-    id: 'greaterHealthPotion', name: 'Greater Health Potion', icon: ICON.potionHpBig, stack: 20, value: 130, minFloor: 4,
-    desc: 'Restores 70% of maximum health.',
+    id: 'greaterHealthPotion', name: 'Greater Health Potion', icon: ICON.potionHpBig, stack: 20, value: 60, minFloor: 4,
+    group: 'health', cooldown: 20,
+    desc: 'Restores 70% of maximum health. 20s cooldown, shared with all health potions.',
     use: (world, actor) => world.healActor(actor, actor.stats.maxHp * 0.7, 'potion'),
   },
   manaPotion: {
-    id: 'manaPotion', name: 'Mana Potion', icon: ICON.potionMp, stack: 20, value: 45,
-    desc: 'Restores 40% of maximum mana.',
+    id: 'manaPotion', name: 'Mana Potion', icon: ICON.potionMp, stack: 20, value: 22,
+    group: 'mana', cooldown: 14,
+    desc: 'Restores 40% of maximum mana. 14s cooldown, shared with all mana potions.',
     use: (world, actor) => world.restoreMana(actor, actor.stats.maxMp * 0.4),
   },
   greaterManaPotion: {
-    id: 'greaterManaPotion', name: 'Greater Mana Potion', icon: ICON.potionMpBig, stack: 20, value: 130, minFloor: 4,
-    desc: 'Restores 80% of maximum mana.',
+    id: 'greaterManaPotion', name: 'Greater Mana Potion', icon: ICON.potionMpBig, stack: 20, value: 60, minFloor: 4,
+    group: 'mana', cooldown: 20,
+    desc: 'Restores 80% of maximum mana. 20s cooldown, shared with all mana potions.',
     use: (world, actor) => world.restoreMana(actor, actor.stats.maxMp * 0.8),
   },
   revivePotion: {
-    id: 'revivePotion', name: 'Draught of Return', icon: ICON.potionRevive, stack: 5, value: 900, minFloor: 5, rare: true,
+    id: 'revivePotion', name: 'Draught of Return', icon: ICON.potionRevive, stack: 5, value: 420, minFloor: 5, rare: true,
+    group: 'revive', cooldown: 60,
     desc: 'Raises one fallen ally nearby at half health. Does not work on yourself.',
     use: (world, actor) => world.reviveNearest(actor, 300, 0.5),
   },
   antidote: {
-    id: 'antidote', name: 'Antidote', icon: ICON.potionAntidote, stack: 10, value: 60, minFloor: 3,
+    id: 'antidote', name: 'Antidote', icon: ICON.potionAntidote, stack: 10, value: 28, minFloor: 3,
+    group: 'utility', cooldown: 20,
     desc: 'Clears poison, burning and chill.',
     use: (world, actor) => world.cleanse(actor, ['poison', 'burn', 'chill']),
   },
   strengthElixir: {
-    id: 'strengthElixir', name: 'Elixir of Might', icon: ICON.potionStrength, stack: 10, value: 180, minFloor: 3,
+    id: 'strengthElixir', name: 'Elixir of Might', icon: ICON.potionStrength, stack: 10, value: 85, minFloor: 3,
+    group: 'elixir', cooldown: 60,
     desc: '+25% damage for 45 seconds.',
     use: (world, actor) => world.applyBuff(actor, {
       id: 'might', name: 'Might', duration: 45, icon: ICON.potionStrength, mods: { damagePct: 0.25 },
     }),
   },
   speedElixir: {
-    id: 'speedElixir', name: 'Elixir of Haste', icon: ICON.potionSpeed, stack: 10, value: 180, minFloor: 3,
+    id: 'speedElixir', name: 'Elixir of Haste', icon: ICON.potionSpeed, stack: 10, value: 85, minFloor: 3,
+    group: 'elixir', cooldown: 60,
     desc: '+20% move and attack speed for 45 seconds.',
     use: (world, actor) => world.applyBuff(actor, {
       id: 'haste', name: 'Haste', duration: 45, icon: ICON.potionSpeed, mods: { moveSpeed: 0.2, attackSpeed: 0.2 },
     }),
   },
 };
+
+/** Cooldown key a consumable occupies on the player. */
+export function consumableCooldownKey(id) {
+  const def = CONSUMABLES[id];
+  return def?.group ? `potion:${def.group}` : `potion:${id}`;
+}
 
 export function makeConsumable(id, qty = 1) {
   const def = CONSUMABLES[id];
@@ -308,17 +334,19 @@ export function rollLoot(rng, opts) {
   const mf = opts.magicFind || 0;
   const out = [];
 
+  // Drop rates are deliberately stingy. A rare upgrade you had to work for is
+  // worth more than a stream of loot you stop reading.
   const profile = {
-    monster: { goldChance: 0.55, gold: [3, 12], equipChance: 0.13, consChance: 0.16, tomeChance: 0.008, count: 1 },
-    elite: { goldChance: 0.9, gold: [12, 34], equipChance: 0.42, consChance: 0.34, tomeChance: 0.03, count: 1 },
-    prop: { goldChance: 0.5, gold: [2, 9], equipChance: 0.07, consChance: 0.22, tomeChance: 0.004, count: 1 },
-    chest: { goldChance: 1, gold: [22, 60], equipChance: 0.95, consChance: 0.7, tomeChance: 0.10, count: 2 },
-    rareChest: { goldChance: 1, gold: [60, 150], equipChance: 1, consChance: 0.9, tomeChance: 0.22, count: 3 },
-    boss: { goldChance: 1, gold: [140, 320], equipChance: 1, consChance: 1, tomeChance: 0.55, count: 4 },
-  }[source] || { goldChance: 0.4, gold: [1, 6], equipChance: 0.06, consChance: 0.1, tomeChance: 0, count: 1 };
+    monster: { goldChance: 0.22, gold: [1, 4], equipChance: 0.022, consChance: 0.032, tomeChance: 0.002, count: 1 },
+    elite: { goldChance: 0.6, gold: [3, 10], equipChance: 0.12, consChance: 0.1, tomeChance: 0.012, count: 1 },
+    prop: { goldChance: 0.3, gold: [1, 3], equipChance: 0.015, consChance: 0.05, tomeChance: 0.001, count: 1 },
+    chest: { goldChance: 0.8, gold: [5, 14], equipChance: 0.6, consChance: 0.3, tomeChance: 0.05, count: 1 },
+    rareChest: { goldChance: 1, gold: [12, 32], equipChance: 1, consChance: 0.45, tomeChance: 0.14, count: 2 },
+    boss: { goldChance: 1, gold: [40, 90], equipChance: 1, consChance: 0.7, tomeChance: 0.4, count: 3 },
+  }[source] || { goldChance: 0.2, gold: [1, 2], equipChance: 0.012, consChance: 0.03, tomeChance: 0, count: 1 };
 
   if (rng.bool(profile.goldChance)) {
-    const g = Math.round(rng.int(profile.gold[0], profile.gold[1]) * (1 + floorNo * 0.55));
+    const g = Math.max(1, Math.round(rng.int(profile.gold[0], profile.gold[1]) * (1 + floorNo * 0.18)));
     out.push(makeGold(g));
   }
 
@@ -331,7 +359,7 @@ export function rollLoot(rng, opts) {
       // Revive draughts stay genuinely scarce even once they are unlocked.
       const weights = pool.map((c) => ({ c, w: c.rare ? 0.6 : c.minFloor ? 3 : 10 }));
       const picked = rng.weighted(weights, (e) => e.w).c;
-      out.push(makeConsumable(picked.id, picked.rare ? 1 : rng.int(1, 2)));
+      out.push(makeConsumable(picked.id, 1));
     }
   }
 
@@ -346,14 +374,14 @@ export function rollLoot(rng, opts) {
 /** Build the merchant's stock for a floor. */
 export function rollShopStock(rng, floorNo) {
   const stock = [];
-  stock.push({ item: makeConsumable('healthPotion', 1), qty: 99 });
-  stock.push({ item: makeConsumable('manaPotion', 1), qty: 99 });
+  stock.push({ item: makeConsumable('healthPotion', 1), qty: 8 });
+  stock.push({ item: makeConsumable('manaPotion', 1), qty: 8 });
   if (floorNo >= 4) {
-    stock.push({ item: makeConsumable('greaterHealthPotion', 1), qty: 99 });
-    stock.push({ item: makeConsumable('greaterManaPotion', 1), qty: 99 });
+    stock.push({ item: makeConsumable('greaterHealthPotion', 1), qty: 4 });
+    stock.push({ item: makeConsumable('greaterManaPotion', 1), qty: 4 });
   }
   if (floorNo >= 3) {
-    stock.push({ item: makeConsumable('antidote', 1), qty: 6 });
+    stock.push({ item: makeConsumable('antidote', 1), qty: 3 });
     if (rng.bool(0.6)) stock.push({ item: makeConsumable('strengthElixir', 1), qty: 3 });
     if (rng.bool(0.6)) stock.push({ item: makeConsumable('speedElixir', 1), qty: 3 });
   }
@@ -361,7 +389,7 @@ export function rollShopStock(rng, floorNo) {
     stock.push({ item: makeConsumable('revivePotion', 1), qty: 1 });
   }
 
-  const equipCount = 4 + Math.floor(floorNo / 3);
+  const equipCount = 3 + Math.floor(floorNo / 4);
   for (let i = 0; i < equipCount; i++) {
     stock.push({ item: rollEquipment(rng, { floor: floorNo + 1, magicFind: 0.5 }), qty: 1 });
   }
@@ -372,8 +400,9 @@ export function rollShopStock(rng, floorNo) {
   return stock;
 }
 
-/** Merchants pay a fraction of list price. */
-export const SELL_RATE = 0.32;
+/** Merchants pay a fraction of list price, and charge a premium over it. */
+export const SELL_RATE = 0.2;
+export const BUY_MARKUP = 1.5;
 
 export function describeAffix(affix) {
   const def = AFFIX_BY_ID[affix.id];

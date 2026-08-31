@@ -161,14 +161,33 @@ export class Minimap {
       }
     }
 
-    // Only monsters on explored ground, so the map is not an x-ray.
+    // Only monsters on explored ground, so the map is not an x-ray. The one
+    // exception is whatever is still holding the stairs shut: the floor is
+    // unfinishable until it dies, so it is always findable.
+    const guards = world.stairsUnlocked ? null : new Set(world.bossRoomGuards?.().map((m) => m.id));
     for (const m of world.monsters) {
       if (m.dead) continue;
       const tx = Math.floor(m.x / TILE), ty = Math.floor(m.y / TILE);
-      if (!d.inBounds(tx, ty) || !explored[d.idx(tx, ty)]) continue;
-      if (!m.boss && !expanded && !this.nearAnyPlayer(m, 620)) continue;
-      if (!m.boss && expanded && !this.nearAnyPlayer(m, 620)) continue;
-      dot(tx, ty, m.boss ? '#ff4fd8' : m.elite ? '#ff9a2e' : '#d05050', m.boss ? 3.5 : 1.6);
+      if (!d.inBounds(tx, ty)) continue;
+      const isGuard = guards?.has(m.id);
+      if (!isGuard) {
+        if (!explored[d.idx(tx, ty)]) continue;
+        if (!m.boss && !this.nearAnyPlayer(m, 620)) continue;
+      }
+      const color = m.boss ? '#ff4fd8' : isGuard ? '#ff7043' : m.elite ? '#ff9a2e' : '#d05050';
+      dot(tx, ty, color, m.boss ? 3.5 : isGuard ? 2.6 : 1.6);
+      if (isGuard && !m.boss) {
+        // Ring it so a single straggler stands out from ordinary red dots.
+        const proj = project(tx + 0.5, ty + 0.5);
+        ctx.save();
+        ctx.strokeStyle = '#ff7043';
+        ctx.globalAlpha = 0.55 + 0.45 * Math.sin(Date.now() / 200);
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(proj.x, proj.y, 6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     for (const p of world.players) {

@@ -32,7 +32,7 @@ export const ABILITIES = {
     mana: 0, cooldown: 0.60, anim: 'attack', swings: ['attack', 'attack2', 'attack3'],
     cast(ctx) {
       ctx.world.melee(ctx.actor, {
-        range: 68, arc: 1.85, coef: 1.0, power: P.melee, type: 'phys',
+        range: 46, arc: 1.05, coef: 1.0, power: P.melee, type: 'phys',
         knockback: 90, sfx: 'swing',
       });
     },
@@ -44,7 +44,7 @@ export const ABILITIES = {
     mana: 0, cooldown: 0.66, anim: 'attack', swings: ['attack', 'attack2', 'attack3'],
     cast(ctx) {
       ctx.world.melee(ctx.actor, {
-        range: 100, arc: 0.75, coef: 1.12, power: P.melee, type: 'phys',
+        range: 68, arc: 0.5, coef: 1.12, power: P.melee, type: 'phys',
         knockback: 130, sfx: 'swing',
       });
     },
@@ -110,7 +110,7 @@ export const ABILITIES = {
     mana: 26, cooldown: 9, anim: 'attack2',
     cast(ctx) {
       ctx.world.groundZone(ctx.actor, {
-        x: ctx.actor.x, y: ctx.actor.y, radius: 140, duration: 4, tickRate: 0.5,
+        x: ctx.actor.x, y: ctx.actor.y, radius: 105, duration: 4, tickRate: 0.5,
         coef: 0.34, power: P.spell, type: 'holy', color: '#ffe9a8',
         healAllies: 0.035, sfx: 'holy',
       });
@@ -125,10 +125,10 @@ export const ABILITIES = {
       for (let i = 0; i < 3; i++) {
         ctx.world.delay(i * 0.16, () => {
           ctx.world.melee(ctx.actor, {
-            range: 84, arc: TAU, coef: 0.72, power: P.melee, type: 'phys',
+            range: 62, arc: TAU, coef: 0.72, power: P.melee, type: 'phys',
             knockback: 110, sfx: 'swing',
           });
-          ctx.world.spawnFx('spin', ctx.actor.x, ctx.actor.y, { radius: 84, life: 0.2 });
+          ctx.world.spawnFx('spin', ctx.actor.x, ctx.actor.y, { radius: 62, life: 0.2 });
         });
       }
     },

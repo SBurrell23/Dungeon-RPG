@@ -1,8 +1,8 @@
 import {
-  $, el, iconUrl, bindTooltip, itemTooltip, rarityClass, escapeHtml,
+  $, el, iconUrl, bindTooltip, itemTooltip, rarityClass, itemLocked, escapeHtml,
   showScreen, hideScreen, isScreenOpen, hideTooltip, toast,
 } from './ui.js';
-import { SLOTS, SLOT_LABEL, SELL_RATE } from '../game/items.js';
+import { SLOTS, SLOT_LABEL, SELL_RATE, BUY_MARKUP, INVENTORY_SIZE } from '../game/items.js';
 import { PRIMARIES, PRIMARY_LABEL, PRIMARY_BLURB, xpToNext } from '../game/stats.js';
 import { getAbility, SCHOOLS } from '../game/abilities.js';
 import { getClass } from '../game/classes.js';
@@ -105,24 +105,32 @@ export class Panels {
 
     const goldRow = el('div', 'pointsleft', `Gold: ${p.gold}`);
     left.appendChild(goldRow);
-    left.appendChild(el('div', 'small dim', 'Click an equipped item to remove it. Click a bag item to equip or use it.'));
+    left.appendChild(el('div', 'small dim', 'Left-click a bag item to equip or use it. Right-click to drop it for a teammate. Click an equipped item to remove it.'));
     layout.appendChild(left);
 
     // Bag.
     const right = el('div');
-    right.appendChild(el('h3', null, `Bag (${p.inventory.length}/40)`));
+    right.appendChild(el('h3', null, `Bag (${p.inventory.length}/${INVENTORY_SIZE})`));
     const bag = el('div', 'itemgrid');
     for (const item of p.inventory) {
       bag.appendChild(this.itemCell(item, {
         onClick: () => {
-          if (item.type === 'equipment') { this.actions.equip(item.uid); playSfx('equip', 0.8); }
-          else if (item.type === 'consumable') this.actions.useItem(item.uid);
+          if (item.type === 'equipment') {
+            if (itemLocked(item, p)) {
+              toast(`${item.name} needs level ${item.levelReq} - you are level ${p.level}`, 2600);
+              playSfx('error');
+              return;
+            }
+            this.actions.equip(item.uid);
+            playSfx('equip', 0.8);
+          } else if (item.type === 'consumable') this.actions.useItem(item.uid);
           else if (item.type === 'tome') this.actions.learnTome(item.uid);
           this.refresh();
         },
+        // Right-click drops on the ground where anyone can grab it - the
+        // only item-trading mechanism the party has.
         onRightClick: () => {
-          if (item.type === 'tome') this.actions.learnTome(item.uid);
-          else this.actions.dropItem(item.uid);
+          this.actions.dropItem(item.uid);
           this.refresh();
         },
       }));
@@ -135,10 +143,13 @@ export class Panels {
   }
 
   itemCell(item, { onClick, onRightClick, price, priceLabel } = {}) {
-    const cell = el('div', `itemcell ${rarityClass(item)}`);
+    const locked = itemLocked(item, this.player);
+    const cell = el('div', `itemcell ${rarityClass(item)}${locked ? ' locked' : ''}`);
     cell.appendChild(Object.assign(new Image(), { src: iconUrl(item.icon) }));
     if (item.qty > 1) cell.appendChild(el('span', 'qty', item.qty));
     if (price != null) cell.appendChild(el('span', 'price', `${price}g`));
+    // A red level badge is readable at a glance across a full bag.
+    if (locked) cell.appendChild(el('span', 'lockbadge', `L${item.levelReq}`));
     bindTooltip(cell, () => itemTooltip(item, this.player, { price, priceLabel }));
     if (onClick) cell.addEventListener('click', onClick);
     if (onRightClick) {
@@ -297,7 +308,7 @@ export class Panels {
     stock.innerHTML = '';
     npc.stock.forEach((entry, index) => {
       if (entry.qty <= 0) return;
-      const price = Math.round(entry.item.value * 1.35);
+      const price = Math.round(entry.item.value * BUY_MARKUP);
       const cell = this.itemCell(entry.item, {
         price,
         priceLabel: 'Costs',

@@ -35,6 +35,17 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Custom cursor: a small torch-lit crosshair, so aiming reads as aiming.
+   Two SVGs - a plain one for menus, the crosshair for the world. */
+:root {
+  --cursor-ui: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M3 2 L3 15 L6.5 11.8 L8.9 17.2 L11.3 16.1 L8.9 10.9 L13.6 10.6 Z" fill="%23ffe9c4" stroke="%23241a12" stroke-width="1.3" stroke-linejoin="round"/></svg>') 3 2, auto;
+  --cursor-aim: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22"><g stroke="%23241a12" stroke-width="3.4" stroke-linecap="round"><path d="M11 2.5 L11 7"/><path d="M11 15 L11 19.5"/><path d="M2.5 11 L7 11"/><path d="M15 11 L19.5 11"/></g><g stroke="%23ffc45c" stroke-width="1.6" stroke-linecap="round"><path d="M11 2.5 L11 7"/><path d="M11 15 L11 19.5"/><path d="M2.5 11 L7 11"/><path d="M15 11 L19.5 11"/></g><circle cx="11" cy="11" r="1.6" fill="%23ffc45c" stroke="%23241a12" stroke-width="1"/></svg>') 11 11, crosshair;
+}
+
+body { cursor: var(--cursor-ui); }
+#game { cursor: var(--cursor-aim); }
+.btn, .tab, .itemcell, .equipslot, .classrow, .spellcard, .check, label { cursor: var(--cursor-ui); }
+
 #app { position: fixed; inset: 0; }
 
 #game {
@@ -214,6 +225,7 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
   box-shadow: inset 0 0 20px rgba(0,0,0,.8);
 }
 .bars { width: 250px; }
+.vitals { min-height: 62px; }
 .namerow { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
 .namerow .lvl { color: var(--gold); }
 .bar {
@@ -221,10 +233,16 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
   border: 1px solid #2a2230; border-radius: 2px; overflow: hidden; margin-bottom: 3px;
 }
 .bar .fill { height: 100%; width: 50%; transition: width .12s linear; }
-.bar span { position: absolute; inset: 0; text-align: center; font-size: 9px; line-height: 11px; color: rgba(255,255,255,.85); text-shadow: 0 1px 2px #000; }
+.bar span {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: rgba(255,255,255,.9); text-shadow: 0 1px 2px #000;
+  white-space: nowrap; overflow: hidden;
+}
 .bar.hp .fill { background: linear-gradient(var(--hp-hi), var(--hp)); }
 .bar.mp .fill { background: linear-gradient(var(--mp-hi), var(--mp)); }
-.bar.xp { height: 6px; }
+.bar.xp { height: 11px; }
+.bar.xp span { font-size: 8px; color: rgba(255,235,200,.9); }
 .bar.xp .fill { background: linear-gradient(#e0ac52, var(--xp)); }
 
 #buffs { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; max-width: 320px; }
@@ -340,6 +358,24 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 .tooltip .tt-cmp { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 11px; }
 .tooltip .up { color: var(--ok); }
 .tooltip .down { color: var(--bad); }
+.tooltip .tt-locked {
+  margin-top: 8px; padding: 5px 7px; border-radius: 3px;
+  background: rgba(190,40,40,.18); border: 1px solid #8a2a2a;
+  color: #ff9a9a; font-size: 11px; font-weight: 600;
+}
+
+/* Items you cannot equip yet: dimmed, red-edged, and stamped with the level. */
+.itemcell.locked img, .equipslot.locked img { filter: grayscale(.75) brightness(.55); }
+.itemcell.locked { border-color: #8a2a2a !important; background: rgba(150,30,30,.12); }
+.itemcell.locked::after {
+  content: ''; position: absolute; inset: 0; border-radius: 2px;
+  background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(190,40,40,.14) 6px 12px);
+  pointer-events: none;
+}
+.itemcell .lockbadge {
+  position: absolute; top: 1px; left: 3px; z-index: 1;
+  font-size: 9px; font-weight: 600; color: #ff8080; text-shadow: 0 1px 2px #000;
+}
 
 /* ===================== Character sheet / inventory ===================== */
 
@@ -412,6 +448,18 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 .endcard .erow { display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; border-bottom: 1px dotted #241d2a; }
 .endsummary { display: flex; gap: 24px; flex-wrap: wrap; font-size: 12px; color: var(--dim); margin-bottom: 6px; }
 .endsummary b { color: var(--gold); }
+
+/* ===================== Dev console ===================== */
+
+.devpanel { width: min(720px, 94vw); }
+.devpanel h3 { margin-top: 18px; }
+.devgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.devgrid .check { margin: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 3px; background: rgba(0,0,0,.25); }
+.devgrid .btn { width: 100%; }
+.devgrid.floors { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
+.devinfo { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); line-height: 1.7; }
+#screen-dev .panel { border-color: #4a7a4a; }
+#screen-dev h2 { color: #8fe08f; }
 
 /* ===================== Spectate ===================== */
 

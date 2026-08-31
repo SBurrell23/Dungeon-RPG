@@ -154,6 +154,11 @@ export function rarityClass(item) {
   return item?.rarity ? `r-${item.rarity}` : '';
 }
 
+/** True when the player is too low level to equip this item. */
+export function itemLocked(item, player) {
+  return !!(player && item?.type === 'equipment' && player.level < (item.levelReq || 1));
+}
+
 export function rarityColor(item) {
   if (item?.type === 'tome') return '#c264ff';
   return RARITY_BY_ID[item?.rarity]?.color || '#b8b8b8';
@@ -179,7 +184,13 @@ export function itemTooltip(item, player, { showValue = true, priceLabel = null,
     for (const aff of item.affixes || []) {
       parts.push(`<div class="tt-aff">${describeAffix(aff)}</div>`);
     }
-    if (item.levelReq > 1) parts.push(`<div class="small dim">Requires level ${item.levelReq}</div>`);
+    // Level gating is the single most common reason a click does nothing, so
+    // it gets a loud line rather than a quiet grey one.
+    if (itemLocked(item, player)) {
+      parts.push(`<div class="tt-locked">Requires level ${item.levelReq} &mdash; you are level ${player.level}</div>`);
+    } else if (item.levelReq > 1) {
+      parts.push(`<div class="small dim">Requires level ${item.levelReq}</div>`);
+    }
     if (player) {
       const cmp = compareToEquipped(item, player);
       if (cmp) parts.push(`<div class="tt-cmp">${cmp}</div>`);

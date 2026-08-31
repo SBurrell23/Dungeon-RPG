@@ -8,6 +8,16 @@ import { clamp, TAU } from '../core/util.js';
 const SPRITE = 100;
 
 /**
+ * Global size multiplier for character sprites. The art is a small figure in a
+ * 100px frame, which left characters dwarfed by 48px dungeon furniture; this
+ * brings the two into a sane relationship without touching collision radii.
+ */
+const ACTOR_SCALE = 1.35;
+
+/** Chests are drawn below tile size so they read as objects, not architecture. */
+const CHEST_SIZE = 38;
+
+/**
  * World renderer.
  *
  * Draw order is: baked terrain -> ground props and telegraphs -> pickups ->
@@ -72,9 +82,14 @@ export class Renderer {
   // Props
   // -------------------------------------------------------------------------
 
+  /** Cached frame of a tile animation - never a sub-rect, so nothing bleeds in. */
+  animFrame(def, phase = 0) {
+    const f = Math.floor(this.time * def.fps + phase) % def.frames;
+    return this.assets.tileFrame('cavernAnim', def.col + f, def.row, def.w, def.h, TILE);
+  }
+
   drawGroundProps(ctx, world, camera) {
     const d = world.dungeon;
-    const anim = this.assets.img('cavernAnim');
     const cavern = this.assets.img('cavern');
 
     for (const p of d.props) {
@@ -84,21 +99,15 @@ export class Renderer {
 
       switch (p.type) {
         case 'torch': {
-          if (!anim) break;
-          const a = ANIM_TILES[p.anim] || ANIM_TILES.torch;
-          const f = Math.floor(this.time * a.fps + p.x * 3 + p.y) % a.frames;
-          ctx.drawImage(anim, (a.col + f) * TILE, a.row * TILE, TILE, a.h * TILE,
-            px, py - (a.h - 1) * TILE, TILE, a.h * TILE);
+          const img = this.animFrame(ANIM_TILES[p.anim] || ANIM_TILES.torch, p.x * 3 + p.y);
+          if (img) ctx.drawImage(img, px, py - (img.height - TILE), img.width, img.height);
           break;
         }
         case 'stairs': {
-          if (!anim) break;
-          const a = ANIM_TILES.stairsDown;
-          const f = Math.floor(this.time * a.fps) % a.frames;
+          const img = this.animFrame(ANIM_TILES.stairsDown);
           ctx.save();
           if (!world.stairsUnlocked) ctx.globalAlpha = 0.35;
-          ctx.drawImage(anim, (a.col + f) * TILE, a.row * TILE, TILE, a.h * TILE,
-            px, py - TILE, TILE, a.h * TILE);
+          if (img) ctx.drawImage(img, px, py - TILE, img.width, img.height);
           ctx.restore();
           if (world.stairsUnlocked) {
             const pulse = 0.5 + 0.5 * Math.sin(this.time * 3);
@@ -115,23 +124,17 @@ export class Renderer {
           break;
         }
         case 'entrance': {
-          if (!anim) break;
-          const a = ANIM_TILES.runePlate;
-          const f = Math.floor(this.time * a.fps) % a.frames;
+          const img = this.animFrame(ANIM_TILES.runePlate);
           ctx.globalAlpha = 0.8;
-          ctx.drawImage(anim, (a.col + f) * TILE, a.row * TILE, TILE, a.h * TILE,
-            px, py - TILE, TILE, a.h * TILE);
+          if (img) ctx.drawImage(img, px, py - TILE, img.width, img.height);
           ctx.globalAlpha = 1;
           break;
         }
         case 'shrine': {
-          if (!anim) break;
-          const a = ANIM_TILES.fountain;
-          const f = Math.floor(this.time * a.fps) % a.frames;
+          const img = this.animFrame(ANIM_TILES.fountain);
           ctx.save();
           if (p.used) ctx.globalAlpha = 0.4;
-          ctx.drawImage(anim, (a.col + f) * TILE, a.row * TILE, TILE, a.h * TILE,
-            px, py - TILE, TILE, a.h * TILE);
+          if (img) ctx.drawImage(img, px, py - TILE, img.width, img.height);
           ctx.restore();
           break;
         }
@@ -139,11 +142,14 @@ export class Renderer {
           if (!cavern) break;
           const set = CHEST[p.tier] || CHEST.common;
           const [sc, sr] = p.opened ? set.open : set.closed;
-          ctx.drawImage(cavern, sc * TILE, sr * TILE, TILE, TILE, px, py, TILE, TILE);
+          const off = (TILE - CHEST_SIZE) / 2;
+          ctx.drawImage(cavern, sc * TILE, sr * TILE, TILE, TILE,
+            px + off, py + off + 4, CHEST_SIZE, CHEST_SIZE);
           break;
         }
         case 'trap': {
-          this.drawTrap(ctx, p, px, py, world);
+          if (p.spent || !p.seen) break;
+          this.drawTrap(ctx, p, px, py);
           break;
         }
         default:
@@ -153,14 +159,13 @@ export class Renderer {
   }
 
   /**
-   * Traps are drawn in JS rather than from the sheet so their armed state is
-   * always readable - a hidden trap is a faint scuff, a sprung one is obvious.
+   * Traps are drawn in JS rather than from the sheet so their state reads at a
+   * glance. Only called once a player has come close enough to spot the trap;
+   * an armed one pulses, a spent-but-persistent one sits dull.
    */
-  drawTrap(ctx, p, px, py, world) {
+  drawTrap(ctx, p, px, py) {
     const cx = px + TILE / 2, cy = py + TILE / 2;
-    const revealed = !p.hidden || !p.armed;
     ctx.save();
-    ctx.globalAlpha = revealed ? 1 : 0.16;
 
     const colors = {
       spike: '#b9bfd0', dart: '#c8a26a', flame: '#ff7a3c', poison: '#8ad86a',
@@ -326,7 +331,7 @@ export class Renderer {
       frame = Math.min(frames - 1, Math.floor(a.anim.t * a.anim.fps));
     }
 
-    const size = SPRITE * scale;
+    const size = SPRITE * scale * ACTOR_SCALE;
     ctx.save();
     ctx.translate(a.x, a.y);
     if (facesLeft(a)) ctx.scale(-1, 1);
@@ -352,16 +357,6 @@ export class Renderer {
       ctx.restore();
     }
 
-    if (a === localPlayer) {
-      ctx.save();
-      ctx.globalAlpha = 0.5;
-      ctx.strokeStyle = CLASSES[a.classId]?.color || '#fff';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(a.x, a.y + 2, (a.radius || 13) + 4, 0, TAU);
-      ctx.stroke();
-      ctx.restore();
-    }
   }
 
   resolveSheet(a) {

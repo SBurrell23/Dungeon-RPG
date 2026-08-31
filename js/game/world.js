@@ -1,4 +1,4 @@
-import { TILE, SOLID_DECOR } from '../assets/manifest.js';
+import { TILE, SOLID_DECOR, DECOR } from '../assets/manifest.js';
 import { RNG } from '../core/rng.js';
 import { clamp, dist, dist2, TAU, retain, nextId } from '../core/util.js';
 import { bus } from '../core/events.js';
@@ -15,6 +15,7 @@ import { getAbility } from './abilities.js';
 import { MONSTERS, poolForFloor, bossForFloor, levelForSpawn } from './monsters.js';
 import {
   rollLoot, rollEquipment, makeConsumable, rollShopStock, CONSUMABLES,
+  INVENTORY_SIZE, consumableCooldownKey,
 } from './items.js';
 
 /**
@@ -34,6 +35,18 @@ const CELL = 96; // spatial hash cell size in pixels
 
 /** Effects worth the bandwidth to mirror; hit sparks are re-derived from damage. */
 const NETWORKED_FX = new Set(['slash', 'blast', 'sheet', 'ward', 'spin', 'chain', 'spikes', 'heal']);
+
+// How far the rock rim art bleeds over the floor on each side of a wall, in px.
+// Mirrors the offsets in gen/autotile.js drawRim().
+const RIM_N = 18;   // rock face hanging down from the wall above
+const RIM_S = 16;
+const RIM_W = 16;
+
+/** Traps within this distance of a player become visible. */
+const TRAP_REVEAL_RANGE = 132;
+
+/** Trap kinds that survive being triggered and re-arm; the rest are one-shot. */
+const PERSISTENT_TRAPS = new Set(['flame', 'poison']);
 
 export class World {
   /** @param {{ seed:string, isHost:boolean }} opts */
@@ -77,6 +90,9 @@ export class World {
     this.stairsUnlocked = false;
     this.state = 'playing'; // playing | descending | victory | defeat
     this.partyGold = 0;
+
+    /** Dev-console cheats. Off in every normal run; see ui #screen-dev. */
+    this.debug = { god: false, speed: false, noclip: false, oneHit: false };
   }
 
   // -------------------------------------------------------------------------
@@ -133,12 +149,32 @@ export class World {
     return d;
   }
 
+  /**
+   * Build the movement-blocking mask.
+   *
+   * Props are anchored bottom-left and can be several tiles across, so every
+   * tile the art actually covers is blocked - marking only the anchor is what
+   * let players stand on top of boulders and chests.
+   */
   rebuildBlocked() {
     const d = this.dungeon;
     this.blocked = new Uint8Array(d.w * d.h);
     for (let i = 0; i < d.tiles.length; i++) this.blocked[i] = d.tiles[i] ? 0 : 1;
+
+    const block = (x, y) => { if (d.inBounds(x, y)) this.blocked[d.idx(x, y)] = 1; };
+
     for (const dec of d.decor) {
-      if (dec.solid || SOLID_DECOR.has(dec.kind)) this.blocked[d.idx(dec.x, dec.y)] = 1;
+      if (!dec.solid && !SOLID_DECOR.has(dec.kind)) continue;
+      const src = DECOR[dec.kind];
+      const w = src ? src[2] : 1;
+      const h = src ? src[3] : 1;
+      for (let oy = 0; oy < h; oy++) {
+        for (let ox = 0; ox < w; ox++) block(dec.x + ox, dec.y - (h - 1) + oy);
+      }
+    }
+    // You should have to stand next to a chest to open it, not on it.
+    for (const prop of d.props) {
+      if (prop.type === 'chest' || prop.type === 'shrine') block(prop.x, prop.y);
     }
   }
 
@@ -164,6 +200,10 @@ export class World {
       }
       const pos = d.tileCenter(s.x, s.y);
       const m = createMonster({ monsterId, level, elite: s.elite, boss, x: pos.x, y: pos.y, rng: this.rng });
+      // Big monsters and props can make a nominally-open spawn tile unusable.
+      const spot = this.findStandableSpot(pos.x, pos.y, m);
+      if (!spot) continue;
+      m.x = spot.x; m.y = spot.y;
       m.roomId = s.roomId;
       m.guard = !!s.guard;
       if (boss) {
@@ -284,6 +324,7 @@ export class World {
 
     for (const n of this.npcs) advanceAnim(n, dt);
 
+    this.updateTrapVisibility();
     this.updateTimers(dt);
     this.updateFx(dt);
     this.updatePickups(dt);
@@ -337,6 +378,13 @@ export class World {
       if (p.dead) continue;
       for (const pl of this.players) {
         if (pl.dead || pl.downed) continue;
+        // Whoever dropped this cannot hoover it straight back up - they have to
+        // step away first. That is what makes right-click-drop a way to hand an
+        // item to a teammate rather than a no-op.
+        if (p.dropperId === pl.id && !p.armed) {
+          if (dist2(p.x, p.y, pl.x, pl.y) > 70 * 70) p.armed = true;
+          continue;
+        }
         if (dist2(p.x, p.y, pl.x, pl.y) < 34 * 34) {
           this.collect(pl, p);
           break;
@@ -392,7 +440,7 @@ export class World {
     p.aim = intent.aim;
     const stunned = isStunned(p);
     const moveMult = movementMult(p);
-    const speed = p.stats.moveSpeed * moveMult * (p.windup > 0 ? 0.45 : 1);
+    const speed = p.stats.moveSpeed * moveMult * (p.windup > 0 ? 0.45 : 1) * (this.debug.speed ? 3 : 1);
 
     if (!stunned && (intent.mx || intent.my)) {
       // Snappy, near-instant acceleration - this is an action game, not a sim.
@@ -441,7 +489,7 @@ export class World {
     if (!ab) return false;
     const cd = p.cooldowns[abilityId] || 0;
     if (cd > 0) return false;
-    if (ab.mana > 0 && p.mp < ab.mana) {
+    if (ab.mana > 0 && p.mp < ab.mana && !this.debug.god) {
       if (!ab.basic) this.floatText(p.x, p.y - 30, 'No mana', '#7fa8ff');
       return false;
     }
@@ -477,7 +525,7 @@ export class World {
       if (ab.anim) setAnim(p, this.hasHeroAnim(p.classId, ab.anim) ? ab.anim : 'attack', { loop: false, fps: 16, lock: 0.45 });
       this.emitEvent({ t: 'ability', id: p.id, a: abilityId });
     }
-    if (ab.mana > 0) p.mp -= ab.mana;
+    if (ab.mana > 0 && !this.debug.god) p.mp -= ab.mana;
 
     if (windup > 0) {
       p.windup = windup;
@@ -500,8 +548,20 @@ export class World {
   consume(p, slot) {
     const def = CONSUMABLES[slot.id];
     if (!def) return false;
+
+    // Potions share a cooldown per kind, so a stack of twenty is not a second
+    // health bar you can chug through mid-fight.
+    const cdKey = consumableCooldownKey(slot.id);
+    const remaining = this.debug.god ? 0 : (p.cooldowns[cdKey] || 0);
+    if (remaining > 0) {
+      this.floatText(p.x, p.y - 34, `${remaining.toFixed(1)}s`, '#ff9060');
+      this.sfxAt(p.x, p.y, 'error');
+      return false;
+    }
+
     const ok = def.use(this, p);
     if (ok === false) return false;
+    if (def.cooldown) p.cooldowns[cdKey] = def.cooldown;
     slot.qty--;
     if (slot.qty <= 0) retain(p.inventory, (i) => i !== slot);
     this.sfxAt(p.x, p.y, 'drink');
@@ -536,21 +596,68 @@ export class World {
     if (this.canStep(a, a.x, ny)) a.y = ny; else a.vy *= -0.15;
   }
 
-  /** Circle-vs-tile test at a candidate position. */
+  /**
+   * Circle-vs-tile test at a candidate position.
+   *
+   * As well as solid tiles and props, this keeps bodies out of the rock rim
+   * that the renderer bleeds over the edges of floor tiles - without it you can
+   * stand inside the wall art. The inset is only applied when the *opposite*
+   * side of the tile is open floor, so a one-tile-wide corridor never becomes
+   * impassable, and very large monsters skip it so bosses cannot wedge in a
+   * doorway.
+   */
   canStep(a, x, y) {
     const r = a.radius * 0.72;
     const d = this.dungeon;
     if (!d) return true;
+    if (this.debug.noclip && a.kind === 'player') {
+      return x > 0 && y > 0 && x < d.w * TILE && y < d.h * TILE;
+    }
     const blocked = this.blocked;
-    // Flying monsters ignore the props on the ground but not the rock walls.
     const check = (px, py) => {
       const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
       if (tx < 0 || ty < 0 || tx >= d.w || ty >= d.h) return true;
       const i = ty * d.w + tx;
       if (d.tiles[i] === 0) return true;
-      return a.flying ? false : blocked[i] === 1;
+      return !a.flying && blocked[i] === 1;
     };
-    return !(check(x - r, y - r) || check(x + r, y - r) || check(x - r, y + r) || check(x + r, y + r) || check(x, y));
+    if (check(x - r, y - r) || check(x + r, y - r) || check(x - r, y + r) || check(x + r, y + r) || check(x, y)) {
+      return false;
+    }
+
+    // Rim test, applied to the body centre only. Testing the whole hitbox would
+    // reject nearly every tile that touches a wall and carve the floor to
+    // pieces; keeping it to the centre means a tile that is walkable at all
+    // stays walkable, so this can never disconnect the dungeon. Each inset is
+    // also skipped unless the opposite side is open floor, so one-tile
+    // passages keep their full width.
+    if (a.flying || a.radius > 24) return true;
+    const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    const lx = x - tx * TILE;
+    const ly = y - ty * TILE;
+    if (ly < RIM_N && d.isSolid(tx, ty - 1) && d.isFloor(tx, ty + 1)) return false;
+    if (ly > TILE - RIM_S && d.isSolid(tx, ty + 1) && d.isFloor(tx, ty - 1)) return false;
+    if (lx < RIM_W && d.isSolid(tx - 1, ty) && d.isFloor(tx + 1, ty)) return false;
+    if (lx > TILE - RIM_W && d.isSolid(tx + 1, ty) && d.isFloor(tx - 1, ty)) return false;
+    return true;
+  }
+
+  /**
+   * Nearest position an actor of this size can legally stand, searching
+   * outward from (x, y). Used whenever something is created at a position that
+   * might be inside geometry - split slimes, summons, relocations.
+   */
+  findStandableSpot(x, y, actorLike, maxRadius = 6) {
+    if (this.canStep(actorLike, x, y)) return { x, y };
+    for (let ring = 1; ring <= maxRadius; ring++) {
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * TAU;
+        const px = x + Math.cos(a) * ring * TILE * 0.6;
+        const py = y + Math.sin(a) * ring * TILE * 0.6;
+        if (this.canStep(actorLike, px, py)) return { x: px, y: py };
+      }
+    }
+    return null;
   }
 
   hasLineOfSight(x0, y0, x1, y1) {
@@ -969,7 +1076,10 @@ export class World {
 
   dealDamage({ source, target, amount, crit = false, type = 'phys', knockback = 0, angle = 0, effects = null }) {
     if (!target || target.dead || target.downed) return 0;
-    if (target.kind === 'player' && target.invuln > 0) return 0;
+    if (target.kind === 'player' && (target.invuln > 0 || this.debug.god)) return 0;
+    if (this.debug.oneHit && source?.kind === 'player' && target.kind !== 'player') {
+      amount = (target.stats.maxHp || 1) * 99;
+    }
 
     const armor = type === 'phys' ? (target.stats.armor || 0) : (target.stats.resist || 0);
     let dmg = mitigate(amount, armor) * damageTakenMult(target);
@@ -1213,6 +1323,11 @@ export class World {
         child.stats.maxHp = Math.round(child.stats.maxHp * 0.35);
         child.hp = child.stats.maxHp;
         child.roomId = target.roomId;
+        // A slime dying against a wall would otherwise drop its children inside
+        // it - unreachable, unkillable, and enough to seal the stairs forever.
+        const spot = this.findStandableSpot(child.x, child.y, child);
+        if (!spot) continue;
+        child.x = spot.x; child.y = spot.y;
         this.addMonster(child);
       }
     }
@@ -1302,7 +1417,7 @@ export class World {
       const slot = player.inventory.find((i) => i.type === 'consumable' && i.id === item.id && i.qty < (i.stack || 20));
       if (slot) { slot.qty += item.qty; return true; }
     }
-    if (player.inventory.length >= 40) {
+    if (player.inventory.length >= INVENTORY_SIZE) {
       this.floatText(player.x, player.y - 50, 'Bag full', '#ff8080');
       return false;
     }
@@ -1322,10 +1437,27 @@ export class World {
 
   updateTraps(dt) {
     for (const prop of this.dungeon.props) {
-      if (prop.type !== 'trap') continue;
+      if (prop.type !== 'trap' || prop.spent) continue;
       if (prop.cooldown > 0) {
         prop.cooldown -= dt;
         if (prop.cooldown <= 0) prop.armed = true;
+      }
+    }
+  }
+
+  /**
+   * Traps are only drawn once somebody is close enough to notice them. Computed
+   * once per frame here rather than per-trap in the renderer, and it doubles as
+   * "this trap has now been seen" so it stays visible afterwards.
+   */
+  updateTrapVisibility() {
+    const players = this.players.filter((p) => !p.dead);
+    for (const prop of this.dungeon.props) {
+      if (prop.type !== 'trap' || prop.spent || prop.seen) continue;
+      const cx = prop.x * TILE + TILE / 2;
+      const cy = prop.y * TILE + TILE / 2;
+      for (const p of players) {
+        if (dist2(cx, cy, p.x, p.y) < TRAP_REVEAL_RANGE * TRAP_REVEAL_RANGE) { prop.seen = true; break; }
       }
     }
   }
@@ -1337,7 +1469,7 @@ export class World {
     p.lastTrapTile = ty * d.w + tx;
 
     for (const prop of d.props) {
-      if (prop.type !== 'trap' || !prop.armed) continue;
+      if (prop.type !== 'trap' || !prop.armed || prop.spent) continue;
       if (prop.x !== tx || prop.y !== ty) continue;
       this.triggerTrap(prop, p);
       break;
@@ -1347,8 +1479,15 @@ export class World {
   triggerTrap(trap, p) {
     trap.armed = false;
     trap.hidden = false;
-    trap.cooldown = 6;
+    trap.seen = true;
     p.stat.trapsTriggered++;
+    // One-shot traps break when they fire; vents and gas jets keep working, so
+    // they re-arm and stay on the map as a hazard to route around.
+    if (PERSISTENT_TRAPS.has(trap.kind)) {
+      trap.cooldown = 8;
+    } else {
+      trap.spent = true;
+    }
     const power = 8 + this.floorNo * 7;
 
     switch (trap.kind) {
@@ -1457,11 +1596,32 @@ export class World {
     }
   }
 
+  /** Live monsters still holding the stairs. Also the HUD's counter. */
+  bossRoomGuards() {
+    const id = this.dungeon.bossRoom;
+    return this.monsters.filter((m) => !m.dead && m.roomId === id);
+  }
+
   checkBossRoom() {
     if (this.stairsUnlocked) return;
-    const bossRoomId = this.dungeon.bossRoom;
-    const remaining = this.monsters.some((m) => !m.dead && m.roomId === bossRoomId);
-    if (remaining) return;
+    const guards = this.bossRoomGuards();
+
+    // Safety net: a guard that has ended up somewhere a player can never reach
+    // would seal the floor permanently. Every so often, put any stranded one
+    // back in the chamber rather than trusting that it cannot happen.
+    this.guardAudit = (this.guardAudit || 0) - 1;
+    if (this.guardAudit <= 0) {
+      this.guardAudit = 120;
+      const room = this.dungeon.rooms[this.dungeon.bossRoom];
+      for (const m of guards) {
+        if (this.canStep(m, m.x, m.y) && this.flow.sample(m.x, m.y) !== null) continue;
+        const spot = this.findStandableSpot(m.x, m.y, m, 10)
+          || (room && room.tiles.length ? this.dungeon.tileCenter(...this.rng.pick(room.tiles)) : null);
+        if (spot) { m.x = spot.x; m.y = spot.y; m.vx = 0; m.vy = 0; }
+      }
+    }
+
+    if (guards.length) return;
     this.stairsUnlocked = true;
     const stairs = this.dungeon.props.find((pr) => pr.type === 'stairs');
     if (stairs) stairs.locked = false;
@@ -1556,16 +1716,17 @@ export class World {
   }
 
   summonMinion(summoner, monsterId, x, y) {
-    if (!this.dungeon.solidAtPixel(x, y)) {
-      const m = createMonster({
-        monsterId,
-        level: Math.max(1, summoner.level - 2),
-        x, y, rng: this.rng,
-      });
-      m.roomId = summoner.roomId;
-      m.summoned = true;
-      this.addMonster(m);
-      this.spawnFx('summon', x, y, { color: '#a060ff', radius: 30, life: 0.5 });
-    }
+    const m = createMonster({
+      monsterId,
+      level: Math.max(1, summoner.level - 2),
+      x, y, rng: this.rng,
+    });
+    const spot = this.findStandableSpot(x, y, m);
+    if (!spot) return;
+    m.x = spot.x; m.y = spot.y;
+    m.roomId = summoner.roomId;
+    m.summoned = true;
+    this.addMonster(m);
+    this.spawnFx('summon', spot.x, spot.y, { color: '#a060ff', radius: 30, life: 0.5 });
   }
 }

@@ -14,6 +14,7 @@ export class Assets {
     this.sheets = new Map();      // "hero:knight:idle" -> {img, frames, w, h}
     this.recolored = new Map();   // "<key>|<filter>" -> HTMLCanvasElement
     this.iconCache = new Map();   // "c,r,size" -> HTMLCanvasElement
+    this.tileCache = new Map();   // "img:c,r,wxh" -> HTMLCanvasElement
     this.errors = [];
     this.loadedCount = 0;
     this.totalCount = 0;
@@ -143,6 +144,31 @@ export class Assets {
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(img, col * ICON_SIZE, row * ICON_SIZE, ICON_SIZE, ICON_SIZE, 0, 0, size, size);
     this.iconCache.set(key, c);
+    return c;
+  }
+
+  /**
+   * Extract a rectangle of tiles into its own cached canvas.
+   *
+   * Drawing an animation frame as a sub-rect of a big sheet bleeds a sliver of
+   * the neighbouring column when the camera zoom is fractional - the animation
+   * sheet separates its frame groups with bright red markers, which showed up
+   * as a thin red line through every torch. A frame with no neighbours cannot
+   * bleed.
+   */
+  tileFrame(imgKey, col, row, wTiles, hTiles, tileSize = 48) {
+    const key = `${imgKey}:${col},${row},${wTiles}x${hTiles}`;
+    let c = this.tileCache.get(key);
+    if (c !== undefined) return c;
+    const img = this.images.get(imgKey);
+    if (!img) { this.tileCache.set(key, null); return null; }
+    c = document.createElement('canvas');
+    c.width = wTiles * tileSize;
+    c.height = hTiles * tileSize;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, col * tileSize, row * tileSize, c.width, c.height, 0, 0, c.width, c.height);
+    this.tileCache.set(key, c);
     return c;
   }
 

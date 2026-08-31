@@ -196,7 +196,8 @@ export class Hud {
     $('#floorname').textContent = `Floor ${world.floorNo} / 10`;
     $('#floorsub').textContent = d.theme.name;
 
-    const remaining = world.monsters.filter((m) => !m.dead && m.roomId === d.bossRoom).length;
+    const remaining = world.bossRoomGuards ? world.bossRoomGuards().length
+      : world.monsters.filter((m) => !m.dead && m.roomId === d.bossRoom).length;
     const obj = $('#objective');
     const sig = `${world.stairsUnlocked}|${remaining}`;
     if (obj.dataset.sig === sig) return;

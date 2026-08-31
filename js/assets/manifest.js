@@ -196,19 +196,24 @@ export const FLOOR_VARIANTS = [...CAVE_FLOORS, ...GROUND_FLOORS];
  * Rock rim drawn where floor meets the void, sampled out of the cavern sheet's
  * pit prefab at tiles (3,0)-(5,4). In that prefab the pit interior spans
  * x[3.5, 5.5] and y[0.5, 2.75] tiles, so the rim pieces sit on half-tile
- * boundaries and overlap the surrounding floor by 24px (96px on the south side,
- * which is the lit "front face" of the rock).
+ * boundaries and overlap the surrounding floor.
+ *
+ * The overhang is kept small and deliberate: the collision insets in
+ * game/world.js (RIM_N / RIM_S / RIM_W) mirror these numbers so a character can
+ * never stand inside the wall art. Change one and change the other.
  */
 export const RIM = {
   sheet: 'cavern',
   top: { x: 3.5 * TILE, y: 0, w: TILE, h: 24 },
-  bottom: { x: 3.5 * TILE, y: 2.75 * TILE, w: TILE, h: 60 },
+  // South face is the lit front of the rock, so it is taller than the rest -
+  // but only bleeds ~18px onto the floor below.
+  bottom: { x: 3.5 * TILE, y: 2.75 * TILE, w: TILE, h: 26 },
   left: { x: 3 * TILE, y: 1.25 * TILE, w: 24, h: TILE },
   right: { x: 5.5 * TILE, y: 1.25 * TILE, w: 24, h: TILE },
   cornerTL: { x: 3 * TILE, y: 0, w: 24, h: 24 },
   cornerTR: { x: 5.5 * TILE, y: 0, w: 24, h: 24 },
-  cornerBL: { x: 3 * TILE, y: 2.75 * TILE, w: 24, h: 60 },
-  cornerBR: { x: 5.5 * TILE, y: 2.75 * TILE, w: 24, h: 60 },
+  cornerBL: { x: 3 * TILE, y: 2.75 * TILE, w: 24, h: 26 },
+  cornerBR: { x: 5.5 * TILE, y: 2.75 * TILE, w: 24, h: 26 },
 };
 
 /** Colour of the tileset's own pit interior - used as the void clear colour. */
@@ -239,10 +244,20 @@ export const DECOR = {
   poolWater: [25, 0, 2, 2], poolDark: [21, 0, 2, 2], poolLava: [27, 0, 2, 2],
 };
 
-/** Decor that should block movement (props tall enough to stand behind). */
+/**
+ * Decor that blocks movement.
+ *
+ * Anything with physical bulk - rock, crates, barrels, pots - so players walk
+ * around dungeon furniture instead of over it. Flat scatter (pebbles, grass,
+ * mushrooms, gravel) stays walkable.
+ */
 export const SOLID_DECOR = new Set([
   'boulderA', 'boulderB', 'boulderC', 'boulderD', 'boulderE', 'boulderF', 'boulderG', 'boulderH',
-  'spireA', 'spireB', 'pillar', 'crateStackA', 'crateStackB', 'altar',
+  'spireA', 'spireB', 'pillar', 'altar',
+  'crateA', 'crateB', 'crateC', 'crateD', 'crateStackA', 'crateStackB',
+  'barrelA', 'barrelB', 'barrelC',
+  'potA', 'potB', 'potC', 'potD', 'sackA', 'sackB',
+  'rockE', 'rockF', 'rockG', 'rockH',
 ]);
 
 /** Chest sprites, cavern sheet tile coords. */
