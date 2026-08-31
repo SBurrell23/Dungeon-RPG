@@ -48,7 +48,7 @@ export const MONSTERS = {
   skeletonArcher: {
     id: 'skeletonArcher', sheet: 'skeletonArcher', name: 'Bone Archer',
     base: { hp: 32, damage: 15, armor: 1, resist: 8, xp: 18, speed: 84 },
-    radius: 13, scale: 1.0, ai: 'ranged', mass: 0.9, preferredRange: 260,
+    radius: 13, scale: 1.0, ai: 'ranged', mass: 0.9, preferredRange: 190,
     attack: {
       range: 340, cooldown: 2.0, windup: 0.5, coef: 1, type: 'phys',
       projectile: { sprite: 'arrow3', speed: 420, radius: 7 },

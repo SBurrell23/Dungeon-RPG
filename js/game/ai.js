@@ -209,18 +209,38 @@ const BEHAVIOURS = {
     const d = dist(m.x, m.y, t.x, t.y);
     const want = m.def.preferredRange || 240;
     const toT = Math.atan2(t.y - m.y, t.x - m.x);
+    m.facing = toT;
 
-    if (d < want * 0.7) {
-      steer(world, m, -Math.cos(toT), -Math.sin(toT), m.stats.speed, dt);   // kite backwards
-    } else if (d > want * 1.25) {
+    const canShoot = d < m.def.attack.range && m.attackCd <= 0
+      && world.hasLineOfSight(m.x, m.y, t.x, t.y);
+
+    // Taking the shot beats repositioning. Kiting on every frame regardless of
+    // whether the bow was ready made archers look like they were fleeing from a
+    // fight they were actually winning.
+    if (canShoot) {
+      m.vx *= 0.7; m.vy *= 0.7;
+      beginAttack(world, m, t);
+      return;
+    }
+
+    // Only give ground when genuinely crowded - a bowman at medium range holds
+    // his line. Backing off from anything inside 70% of preferred range meant
+    // they spent the whole fight walking backwards.
+    const crowded = want * 0.5;
+    if (d < crowded) {
+      // And only when there is somewhere to go: retreating into a wall used to
+      // leave them grinding against it for seconds at a time.
+      const probe = m.radius + 26;
+      if (world.canStep(m, m.x - Math.cos(toT) * probe, m.y - Math.sin(toT) * probe)) {
+        steer(world, m, -Math.cos(toT), -Math.sin(toT), m.stats.speed * 0.85, dt);
+      } else {
+        steer(world, m, -Math.sin(toT), Math.cos(toT), m.stats.speed * 0.7, dt);
+      }
+    } else if (d > m.def.attack.range * 0.9) {
       steer(world, m, Math.cos(toT), Math.sin(toT), m.stats.speed, dt);
     } else {
-      // Strafe so it is not a stationary turret.
-      steer(world, m, -Math.sin(toT) * 0.6, Math.cos(toT) * 0.6, m.stats.speed * 0.5, dt);
-    }
-    m.facing = toT;
-    if (d < m.def.attack.range && m.attackCd <= 0 && world.hasLineOfSight(m.x, m.y, t.x, t.y)) {
-      beginAttack(world, m, t);
+      // In the pocket: hold the line and shuffle, rather than pace the room.
+      steer(world, m, -Math.sin(toT) * 0.6, Math.cos(toT) * 0.6, m.stats.speed * 0.35, dt);
     }
   },
 

@@ -21,7 +21,7 @@ export const CLASSES = {
     growth: { hp: 15, mp: 2.0, str: 1.5, dex: 0.5, int: 0.25, vit: 1.7 },
     unarmedDamage: 6,
     weaponFamily: 'longsword',
-    basicAttack: 'slash',
+    basicAttack: 'stab',
     ability: 'shieldWall',
     startingGear: { weapon: { family: 'longsword', tier: 1 }, chest: { family: 'body', tier: 1 }, offhand: { family: 'shield', tier: 1 } },
     startingPotions: { healthPotion: 3 },

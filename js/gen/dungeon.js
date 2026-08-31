@@ -36,7 +36,7 @@ export const THEMES = [
   // `moss` is the one deliberately off-palette accent; it is painted in much
   // smaller patches than the earth tones so it reads as growth, not lawn.
   { name: 'Mossy Grotto', base: 0, accents: [2, 12], moss: 6, ambient: '#2e3026', tint: '#d8f0c8' },
-  { name: 'Root Hollows', base: 1, accents: [3, 13], moss: 8, ambient: '#2b2d23', tint: '#e2edbe' },
+  { name: 'Root Hollows', base: 1, accents: [3, 13], moss: 8, ambient: '#2b2d23', tint: '#c2e8a0' },
   { name: 'Clay Warrens', base: 2, accents: [0, 12, 9], moss: 7, ambient: '#30271f', tint: '#ffd9ae' },
   { name: 'Sunken Halls', base: 3, accents: [2, 10, 14], ambient: '#2b231c', tint: '#e8c9a6' },
   { name: 'Deepstone', base: 4, accents: [5, 13, 15], ambient: '#26262e', tint: '#c4d2ea' },
@@ -241,7 +241,12 @@ function pruneBlockingProps(d) {
 }
 
 /** Prop types that occupy their tile. Mirrored by World.rebuildBlocked(). */
-export const BLOCKING_PROPS = new Set(['chest', 'shrine', 'torch']);
+/**
+ * Props that stop a body. Chests are deliberately absent: they sit in
+ * doorways and corners often enough that blocking on them just traps people,
+ * and you open them by walking up to them anyway.
+ */
+export const BLOCKING_PROPS = new Set(['shrine', 'torch']);
 
 // ---------------------------------------------------------------------------
 // 1. BSP partition
@@ -1076,20 +1081,45 @@ function decorate(rng, d, floorNo) {
 
 const TRAP_KINDS = ['spike', 'dart', 'flame', 'poison'];
 
+/**
+ * A trap plate has to sit on open ground, not against a wall.
+ *
+ * The wall art overhangs its neighbours - a wall above bleeds ~18px down into
+ * the tile below, and the same happens from the south and west - so a plate on
+ * a wall-adjacent tile gets partly buried and reads as floating half inside the
+ * rock. Requiring all four orthogonal neighbours to be floor is the only test
+ * that holds for every wall configuration.
+ */
+function trapGround(d, x, y) {
+  return d.isFloor(x, y)
+    && d.isFloor(x - 1, y) && d.isFloor(x + 1, y)
+    && d.isFloor(x, y - 1) && d.isFloor(x, y + 1);
+}
+
 function placeTraps(rng, d, floorNo, freeTile, take) {
   const density = 0.0016 + floorNo * 0.0011;
   const target = Math.floor(d.w * d.h * density);
-  let placed = 0, attempts = 0;
-  while (placed < target && attempts < target * 30) {
-    attempts++;
-    const x = rng.int(3, d.w - 4), y = rng.int(3, d.h - 4);
+
+  // Valid ground is sparse enough after the wall-adjacency rule that rejection
+  // sampling would mostly miss, so collect the legal tiles up front.
+  const spots = [];
+  for (let y = 3; y < d.h - 3; y++) {
+    for (let x = 3; x < d.w - 3; x++) {
+      if (!freeTile(x, y) || !trapGround(d, x, y)) continue;
+      if (Math.hypot(x - d.entrance.x, y - d.entrance.y) < 8) continue;
+      const room = d.roomAt(x, y);
+      if (room && (room.kind === ROOM_KIND.SHOP || room.kind === ROOM_KIND.ENTRANCE)) continue;
+      spots.push([x, y, d.corridor[d.idx(x, y)] === 1]);
+    }
+  }
+  // Corridor junctions are still the best trap ground, so they go in first.
+  rng.shuffle(spots);
+  spots.sort((a, b) => (b[2] ? 1 : 0) - (a[2] ? 1 : 0));
+
+  let placed = 0;
+  for (const [x, y] of spots) {
+    if (placed >= target) break;
     if (!freeTile(x, y)) continue;
-    if (Math.hypot(x - d.entrance.x, y - d.entrance.y) < 8) continue;
-    const room = d.roomAt(x, y);
-    if (room && (room.kind === ROOM_KIND.SHOP || room.kind === ROOM_KIND.ENTRANCE)) continue;
-    // Corridors and doorways are the classic trap spot; rooms get fewer.
-    const inCorridor = d.corridor[d.idx(x, y)] === 1;
-    if (!inCorridor && !rng.bool(0.4)) continue;
     const kinds = floorNo >= 4 ? TRAP_KINDS : TRAP_KINDS.slice(0, 2);
     d.props.push({
       type: 'trap',
@@ -1105,7 +1135,7 @@ function placeTraps(rng, d, floorNo, freeTile, take) {
   // Trapped rooms get a dense cluster - a recognisable hazard, not random noise.
   for (const room of d.rooms) {
     if (room.kind !== 'trapped') continue;
-    const spots = room.tiles.filter(([x, y]) => freeTile(x, y));
+    const spots = room.tiles.filter(([x, y]) => freeTile(x, y) && trapGround(d, x, y));
     rng.shuffle(spots);
     const n = Math.min(spots.length, Math.floor(room.area / 8));
     for (let i = 0; i < n; i++) {

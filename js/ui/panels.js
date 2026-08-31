@@ -1,6 +1,6 @@
 import {
   $, el, iconUrl, portraitUrl, bindTooltip, itemTooltip, rarityClass, itemLocked,
-  escapeHtml, showScreen, hideScreen, isScreenOpen, hideTooltip, toast,
+  escapeHtml, showScreen, hideScreen, isScreenOpen, hideTooltip, toast, openItemMenu, closeItemMenu,
 } from './ui.js';
 import { SLOTS, SLOT_LABEL, SELL_RATE, BUY_MARKUP, INVENTORY_SIZE } from '../game/items.js';
 import { PRIMARIES, PRIMARY_LABEL, PRIMARY_BLURB, PRIMARY_ICON, xpToNext } from '../game/stats.js';
@@ -118,11 +118,14 @@ export class Panels {
 
   closeInventory() {
     hideScreen('screen-inventory');
+    closeItemMenu();
     hideTooltip();
   }
 
   refresh() {
     if (!this.player) return;
+    // Rebuilding the grids orphans any open cell menu, so drop it first.
+    closeItemMenu();
     if (isScreenOpen('screen-inventory')) {
       if (this.activeTab === 'inv') this.renderInventory();
       else if (this.activeTab === 'spells') this.renderSpells();
@@ -226,24 +229,30 @@ export class Panels {
           else if (item.type === 'tome') this.actions.learnTome(item.uid);
           this.refresh();
         },
-        // Right-click drops on the ground where anyone can grab it - the only
-        // item-trading mechanism the party has.
-        onRightClick: () => {
-          this.actions.dropItem(item.uid);
-          this.refresh();
-        },
+        // Right-click opens a menu rather than dropping outright - dropping is
+        // the party's only item-trading mechanism, but it was far too easy to
+        // fire by accident while equipping.
+        menu: () => [
+          item.type === 'equipment'
+            ? { label: 'Equip', disabled: itemLocked(item, p),
+                run: () => { this.actions.equip(item.uid); playSfx('equip', 0.8); } }
+            : item.type === 'tome'
+              ? { label: 'Learn', run: () => this.actions.learnTome(item.uid) }
+              : { label: 'Use', run: () => this.actions.useItem(item.uid) },
+          { label: 'Drop', danger: true, run: () => this.actions.dropItem(item.uid) },
+        ],
       }));
     }
     for (let i = p.inventory.length; i < 32; i++) bag.appendChild(el('div', 'itemcell empty'));
     right.appendChild(bag);
     right.appendChild(el('div', 'small dim baghint',
-      'Left-click to equip or use. Right-click to drop it for a teammate. Click an equipped item to take it off.'));
+      'Left-click to equip or use. Right-click for more options. Click an equipped item to take it off.'));
     layout.appendChild(right);
 
     pane.appendChild(layout);
   }
 
-  itemCell(item, { onClick, onRightClick, price, priceLabel } = {}) {
+  itemCell(item, { onClick, onRightClick, menu, price, priceLabel } = {}) {
     const locked = itemLocked(item, this.player);
     const cell = el('div', `itemcell ${rarityClass(item)}${locked ? ' locked' : ''}`);
     cell.appendChild(Object.assign(new Image(), { src: iconUrl(item.icon) }));
@@ -253,7 +262,13 @@ export class Panels {
     if (locked) cell.appendChild(el('span', 'lockbadge', `L${item.levelReq}`));
     bindTooltip(cell, () => itemTooltip(item, this.player, { price, priceLabel }));
     if (onClick) cell.addEventListener('click', onClick);
-    if (onRightClick) {
+    if (menu) {
+      cell.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openItemMenu(e.clientX, e.clientY, menu(), () => this.refresh());
+      });
+    } else if (onRightClick) {
       cell.addEventListener('contextmenu', (e) => { e.preventDefault(); onRightClick(); });
     }
     return cell;
@@ -431,6 +446,7 @@ export class Panels {
 
   closeShop() {
     hideScreen('screen-shop');
+    closeItemMenu();
     this.shopNpc = null;
     hideTooltip();
   }
@@ -470,6 +486,10 @@ export class Panels {
         price,
         priceLabel: 'Sells for',
         onClick: () => { this.actions.sell(item.uid); playSfx('coin'); this.refresh(); },
+        menu: () => [
+          { label: `Sell (${price}g)`, run: () => { this.actions.sell(item.uid); playSfx('coin'); } },
+          { label: 'Drop', danger: true, run: () => this.actions.dropItem(item.uid) },
+        ],
       }));
     }
     if (!bag.childElementCount) bag.appendChild(el('div', 'small dim', 'Nothing to sell.'));

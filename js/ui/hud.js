@@ -1,7 +1,7 @@
 import { $, el, iconUrl, portraitUrl, bindTooltip, escapeHtml } from './ui.js';
 import { getAbility } from '../game/abilities.js';
 import { getClass } from '../game/classes.js';
-import { CONSUMABLES } from '../game/items.js';
+import { CONSUMABLES, consumableCooldownKey } from '../game/items.js';
 import { xpToNext, MAX_LEVEL } from '../game/stats.js';
 import { DESCENT_TIME, FLOOR_COUNT } from '../game/world.js';
 import { clamp } from '../core/util.js';
@@ -32,8 +32,10 @@ export class Hud {
     basicSlot.appendChild(Object.assign(new Image(), { className: 'ic', src: iconUrl(basic?.icon) }));
     basicSlot.appendChild(el('span', 'key', 'LMB'));
     bindTooltip(basicSlot, () => `<div class="tt-name">${escapeHtml(basic?.name || 'Attack')}</div>
-      <div class="tt-type">Basic attack</div><div class="tt-main">${escapeHtml(basic?.desc || '')}</div>`);
+      <div class="tt-type">Basic attack</div><div class="tt-main">${escapeHtml(basic?.desc || '')}</div>
+      <div class="tt-aff">${basic?.mana || 0} mana</div>`);
     bar.appendChild(basicSlot);
+    this.basicSlot = { node: basicSlot, mana: basic?.mana || 0 };
 
     for (let i = 0; i < 4; i++) {
       const slot = el('div', 'slot');
@@ -68,8 +70,12 @@ export class Hud {
       slot.appendChild(el('span', 'key', key));
       const qty = el('span', 'qty', '0');
       slot.appendChild(qty);
+      // Potions share a per-kind cooldown, which is invisible without this.
+      const cd = el('div', 'cd');
+      cd.style.display = 'none';
+      slot.appendChild(cd);
       quick.appendChild(slot);
-      this.quickSlots.push({ node: slot, qty, consumableId });
+      this.quickSlots.push({ node: slot, qty, cd, consumableId, cdKey: consumableCooldownKey(consumableId) });
       bindTooltip(slot, () => `<div class="tt-name">${escapeHtml(def?.name || '')}</div>
         <div class="tt-main">${escapeHtml(def?.desc || '')}</div>`);
     }
@@ -152,6 +158,16 @@ export class Hud {
       const n = stack?.qty || 0;
       q.qty.textContent = n;
       q.node.classList.toggle('empty', n === 0);
+      const rem = player.cooldowns[q.cdKey] || 0;
+      if (rem > 0.05) {
+        q.cd.style.display = 'flex';
+        q.cd.textContent = rem >= 10 ? Math.ceil(rem) : rem.toFixed(1);
+      } else {
+        q.cd.style.display = 'none';
+      }
+    }
+    if (this.basicSlot) {
+      this.basicSlot.node.classList.toggle('nomana', player.mp < this.basicSlot.mana);
     }
   }
 

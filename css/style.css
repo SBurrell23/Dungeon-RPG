@@ -292,7 +292,7 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 #hud-top-right { position: absolute; right: 16px; top: 14px; text-align: right; }
 #floorbar {
   background: rgba(10,8,12,.72); border: 1px solid var(--line); border-radius: 3px;
-  padding: 7px 12px; margin-bottom: 8px; text-align: right;
+  padding: 7px 12px; margin-bottom: 8px; text-align: center;
   width: 230px;  /* matches #minimap so the panel reads as one column */
   box-sizing: border-box;
 }
@@ -342,9 +342,14 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 
 /* ===================== Item grids and tooltips ===================== */
 
-.itemgrid { display: grid; grid-template-columns: repeat(auto-fill, 44px); gap: 5px; align-content: start; }
+/* auto-fit + minmax lets the row stretch to the panel width, so there is no
+   dead margin down the right-hand side of the bag. */
+.itemgrid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+  gap: 5px; align-content: start;
+}
 .itemcell {
-  position: relative; width: 44px; height: 44px;
+  position: relative; width: 100%; aspect-ratio: 1 / 1; min-width: 44px;
   background: rgba(0,0,0,.35); border: 1px solid var(--line); border-radius: 3px;
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
@@ -581,3 +586,21 @@ kbd {
   .invlayout, .shopbody, .charstats { grid-template-columns: 1fr; }
   #party { display: none; }
 }
+
+/* ===================== Item context menu ===================== */
+
+.itemmenu {
+  position: fixed; z-index: 60; min-width: 124px;
+  background: #14101a; border: 1px solid var(--line-hot);
+  box-shadow: 0 6px 22px rgba(0,0,0,.75);
+  padding: 3px; display: flex; flex-direction: column; gap: 2px;
+}
+.itemmenubtn {
+  font: inherit; font-size: 12px; text-align: left;
+  padding: 7px 10px; background: none; border: 0; color: var(--ink);
+  cursor: pointer; letter-spacing: .04em;
+}
+.itemmenubtn:hover:not(:disabled) { background: rgba(255,255,255,.09); color: #fff; }
+.itemmenubtn:disabled { opacity: .35; cursor: default; }
+.itemmenubtn.danger { color: #ff9a9a; }
+.itemmenubtn.danger:hover { background: rgba(255,60,60,.16); color: #ffbdbd; }

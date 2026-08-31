@@ -100,6 +100,62 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', cancelLab
   });
 }
 
+/**
+ * Small right-click menu for an item cell.
+ *
+ * Anchored at the cursor and clamped to the viewport, dismissed by any click,
+ * Escape, scroll or a second right-click. Only one is ever open.
+ */
+let openMenuEl = null;
+
+export function closeItemMenu() {
+  if (!openMenuEl) return;
+  openMenuEl.remove();
+  openMenuEl = null;
+  window.removeEventListener('keydown', onMenuKey, true);
+  window.removeEventListener('mousedown', onMenuAway, true);
+  window.removeEventListener('wheel', closeItemMenu, true);
+}
+
+function onMenuKey(e) {
+  if (e.code === 'Escape') { e.stopPropagation(); closeItemMenu(); }
+}
+
+function onMenuAway(e) {
+  if (openMenuEl && !openMenuEl.contains(e.target)) closeItemMenu();
+}
+
+export function openItemMenu(x, y, entries, after) {
+  closeItemMenu();
+  const menu = el('div', 'itemmenu');
+  for (const entry of entries) {
+    if (!entry) continue;
+    const b = el('button', `itemmenubtn${entry.danger ? ' danger' : ''}`, entry.label);
+    if (entry.disabled) b.disabled = true;
+    b.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      closeItemMenu();
+      entry.run();
+      after?.();
+    });
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+
+  // Flip rather than overflow when the cursor is near an edge.
+  const r = menu.getBoundingClientRect();
+  const left = Math.min(x, window.innerWidth - r.width - 8);
+  const top = Math.min(y, window.innerHeight - r.height - 8);
+  menu.style.left = `${Math.max(8, left)}px`;
+  menu.style.top = `${Math.max(8, top)}px`;
+
+  openMenuEl = menu;
+  hideTooltip();
+  window.addEventListener('keydown', onMenuKey, true);
+  window.addEventListener('mousedown', onMenuAway, true);
+  window.addEventListener('wheel', closeItemMenu, true);
+}
+
 // ---------------------------------------------------------------------------
 // Tooltip
 // ---------------------------------------------------------------------------

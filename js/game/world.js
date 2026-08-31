@@ -34,7 +34,8 @@ export const FLOOR_COUNT = 10;
 const CELL = 96; // spatial hash cell size in pixels
 
 /** Effects worth the bandwidth to mirror; hit sparks are re-derived from damage. */
-const NETWORKED_FX = new Set(['slash', 'blast', 'sheet', 'ward', 'spin', 'chain', 'spikes', 'heal']);
+const NETWORKED_FX = new Set(['slash', 'thrust', 'stab', 'blast', 'sheet', 'ward', 'spin',
+  'chain', 'spikes', 'heal', 'gather']);
 
 // How far the rock rim art bleeds over the floor on each side of a wall, in px.
 // Mirrors the offsets in gen/autotile.js drawRim().
@@ -508,6 +509,7 @@ export class World {
     p.mp = Math.min(p.stats.maxMp, p.mp + p.stats.mpRegen * dt);
 
     p.attackCd = Math.max(0, p.attackCd - dt);
+    if (p.noManaFlash > 0) p.noManaFlash -= dt;
     p.dashCd = Math.max(0, p.dashCd - dt);
     for (const k in p.cooldowns) p.cooldowns[k] = Math.max(0, p.cooldowns[k] - dt);
 
@@ -579,7 +581,15 @@ export class World {
     const cd = p.cooldowns[abilityId] || 0;
     if (cd > 0) return false;
     if (ab.mana > 0 && p.mp < ab.mana && !this.debug.god) {
-      if (!ab.basic) this.floatText(p.x, p.y - 30, 'No mana', '#7fa8ff');
+      // Basics are retried every frame the button is held, so their warning is
+      // throttled - otherwise an empty bar buries the screen in float text.
+      if (!ab.basic) {
+        this.floatText(p.x, p.y - 30, 'No mana', '#7fa8ff');
+      } else if ((p.noManaFlash || 0) <= 0) {
+        p.noManaFlash = 1.1;
+        this.floatText(p.x, p.y - 30, 'No mana', '#7fa8ff');
+        this.sfxAt(p.x, p.y, 'error');
+      }
       return false;
     }
 
@@ -1498,6 +1508,12 @@ export class World {
       player.stat.itemsFound += gained.length;
       for (const g of gained) this.pushLog(`${player.name} found ${g.name}`, g.rarity ? undefined : '#cfcfcf', g);
     }
+    // Loot arcs off the floor and onto whoever grabbed it, so a pickup reads
+    // as going somewhere rather than just blinking out.
+    const shown = pickup.items.find((i) => i.type !== 'gold') || pickup.items[0];
+    this.spawnFx('gather', pickup.x, pickup.y, {
+      life: 0.36, to: player.id, icon: shown?.icon || null, gold: !!gold && !gained.length,
+    });
     this.sfxAt(player.x, player.y, gold && !gained.length ? 'coin' : 'pickup');
     this.emitEvent({ t: 'pickup', id: player.id, pid: pickup.id });
   }

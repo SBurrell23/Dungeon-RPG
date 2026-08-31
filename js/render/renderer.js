@@ -219,7 +219,7 @@ export class Renderer {
    */
   drawTrap(ctx, p, px, py) {
     const cx = px + TILE / 2, cy = py + TILE / 2;
-    const R = 17;
+    const R = 15;   // sits comfortably inside a tile, clear of the wall rim art
     const armed = p.armed && !p.spent;
     const pulse = 0.6 + 0.4 * Math.sin(this.time * 3.4 + p.x * 1.7 + p.y);
 
@@ -647,6 +647,39 @@ export class Renderer {
       const t = clamp(f.t / f.life, 0, 1);
       if (!camera.isVisible(f.x, f.y, 200)) continue;
       switch (f.type) {
+        case 'gather': {
+          // The loot arcs off the floor and onto the collector, shrinking as it
+          // lands. Drawn after the actors so it finishes in front of them.
+          const target = world.byId.get(f.to);
+          if (!target) break;
+          const ease = t * t * (3 - 2 * t);
+          const gx = f.x + (this.drawX(target) - f.x) * ease;
+          const gy = f.y + (this.drawY(target) - 14 - f.y) * ease - Math.sin(t * Math.PI) * 24;
+          const scale = 1 - t * 0.45;
+
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = (1 - t) * 0.5;
+          const trail = ctx.createRadialGradient(gx, gy, 0, gx, gy, 18 * scale);
+          trail.addColorStop(0, f.gold ? '#ffd23f' : '#fff2c4');
+          trail.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = trail;
+          ctx.beginPath();
+          ctx.arc(gx, gy, 18 * scale, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+
+          const icons = this.assets.img('icons');
+          if (f.icon && icons) {
+            const s = 22 * scale;
+            ctx.save();
+            ctx.globalAlpha = 1 - t * 0.35;
+            ctx.drawImage(icons, f.icon[0] * ICON_SIZE, f.icon[1] * ICON_SIZE, ICON_SIZE, ICON_SIZE,
+              gx - s / 2, gy - s / 2, s, s);
+            ctx.restore();
+          }
+          break;
+        }
         case 'slash': {
           ctx.save();
           ctx.translate(f.x, f.y);
@@ -657,6 +690,38 @@ export class Renderer {
           ctx.beginPath();
           ctx.arc(0, 0, f.radius * (0.65 + t * 0.4), -f.arc / 2, f.arc / 2);
           ctx.stroke();
+          ctx.restore();
+          break;
+        }
+        case 'stab': {
+          // Short and quick: a stubby blade that snaps out and back, so it
+          // reads as a jab rather than a shortened version of the lance.
+          ctx.save();
+          ctx.translate(f.x, f.y);
+          ctx.rotate(f.angle);
+          // Out fast, back in - peaks a third of the way through the effect.
+          const punch = t < 0.34 ? t / 0.34 : 1 - (t - 0.34) / 0.66 * 0.45;
+          const reach = f.radius * (0.45 + punch * 0.55);
+          const halfW = f.radius * 0.2 * (1 - t * 0.4);
+          ctx.globalAlpha = (1 - t * t) * 0.9;
+          ctx.fillStyle = f.color || '#fff';
+          ctx.beginPath();
+          ctx.moveTo(4, -halfW);
+          ctx.lineTo(reach - 5, -halfW * 0.45);
+          ctx.lineTo(reach, 0);
+          ctx.lineTo(reach - 5, halfW * 0.45);
+          ctx.lineTo(4, halfW);
+          ctx.closePath();
+          ctx.fill();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = (1 - t) * 0.75;
+          const spark = ctx.createRadialGradient(reach, 0, 0, reach, 0, 8);
+          spark.addColorStop(0, '#ffffff');
+          spark.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = spark;
+          ctx.beginPath();
+          ctx.arc(reach, 0, 8, 0, TAU);
+          ctx.fill();
           ctx.restore();
           break;
         }

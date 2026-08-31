@@ -24,12 +24,28 @@ export const SCHOOLS = {
 
 export const ABILITIES = {
   // -------------------------------------------------------------------------
-  // Basic attacks - free, gated only by weapon speed.
+  // Basic attacks.
+  //
+  // All of them cost mana now. Melee pays a token amount it will almost never
+  // notice; the ranged classes pay enough that holding the button down is a
+  // real resource decision rather than the default state of play.
   // -------------------------------------------------------------------------
+  stab: {
+    id: 'stab', name: 'Stab', school: 'basic', icon: [4, 20], basic: true,
+    desc: 'A short, fast jab. Less reach than a swing, but you get more of them in.',
+    mana: 1, cooldown: 0.40, anim: 'attack', swings: ['attack', 'attack2'],
+    cast(ctx) {
+      ctx.world.melee(ctx.actor, {
+        range: 38, arc: 0.42, coef: 0.70, power: P.melee, type: 'phys',
+        knockback: 55, sfx: 'swing', fx: 'stab',
+      });
+    },
+  },
+
   slash: {
     id: 'slash', name: 'Slash', school: 'basic', icon: [4, 0], basic: true,
     desc: 'A wide sweep of the blade.',
-    mana: 0, cooldown: 0.60, anim: 'attack', swings: ['attack', 'attack2', 'attack3'],
+    mana: 1, cooldown: 0.60, anim: 'attack', swings: ['attack', 'attack2', 'attack3'],
     cast(ctx) {
       ctx.world.melee(ctx.actor, {
         range: 46, arc: 1.05, coef: 1.0, power: P.melee, type: 'phys',
@@ -41,7 +57,7 @@ export const ABILITIES = {
   thrust: {
     id: 'thrust', name: 'Thrust', school: 'basic', icon: [4, 20], basic: true,
     desc: 'A long stab that outranges most claws.',
-    mana: 0, cooldown: 0.66, anim: 'attack', swings: ['attack', 'attack2', 'attack3'],
+    mana: 2, cooldown: 0.66, anim: 'attack', swings: ['attack', 'attack2', 'attack3'],
     cast(ctx) {
       ctx.world.melee(ctx.actor, {
         range: 68, arc: 0.5, coef: 1.12, power: P.melee, type: 'phys',
@@ -53,7 +69,7 @@ export const ABILITIES = {
   shoot: {
     id: 'shoot', name: 'Loose Arrow', school: 'basic', icon: [4, 16], basic: true,
     desc: 'Nock, draw, release.',
-    mana: 0, cooldown: 0.56, anim: 'attack', swings: ['attack', 'attack2'],
+    mana: 3, cooldown: 0.56, anim: 'attack', swings: ['attack', 'attack2'],
     cast(ctx) {
       ctx.world.fireProjectile(ctx.actor, {
         angle: ctx.aim, speed: 640, range: 620, coef: 1.0, power: P.ranged,
@@ -64,8 +80,8 @@ export const ABILITIES = {
 
   arcaneBolt: {
     id: 'arcaneBolt', name: 'Arcane Bolt', school: 'basic', icon: ICON.gemBlue, basic: true,
-    desc: 'A dart of raw magic. Costs nothing but time.',
-    mana: 0, cooldown: 0.60, anim: 'attack', swings: ['attack', 'attack2'],
+    desc: 'A dart of raw magic.',
+    mana: 6, cooldown: 0.60, anim: 'attack', swings: ['attack', 'attack2'],
     cast(ctx) {
       ctx.world.fireProjectile(ctx.actor, {
         angle: ctx.aim, speed: 520, range: 560, coef: 1.05, power: P.spell,
@@ -77,7 +93,7 @@ export const ABILITIES = {
   holyBolt: {
     id: 'holyBolt', name: 'Holy Bolt', school: 'basic', icon: ICON.gemWhite, basic: true,
     desc: 'Sears the unliving, and returns a little of the light to your wounded.',
-    mana: 0, cooldown: 0.62, anim: 'attack', swings: ['attack'],
+    mana: 5, cooldown: 0.62, anim: 'attack', swings: ['attack'],
     cast(ctx) {
       ctx.world.fireProjectile(ctx.actor, {
         angle: ctx.aim, speed: 500, range: 540, coef: 1.0, power: P.spell,
