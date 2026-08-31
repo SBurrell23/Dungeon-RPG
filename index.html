@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dungeon RPG</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <!-- ===================== In-run HUD ===================== -->
+  <div id="hud" class="hidden">
+    <div id="hud-top-left">
+      <div class="vitals">
+        <div class="portrait" id="portrait"></div>
+        <div class="bars">
+          <div class="namerow">
+            <span id="pname">—</span>
+            <span id="plevel" class="lvl">Lv 1</span>
+          </div>
+          <div class="bar hp"><div class="fill" id="hpfill"></div><span id="hptext"></span></div>
+          <div class="bar mp"><div class="fill" id="mpfill"></div><span id="mptext"></span></div>
+          <div class="bar xp"><div class="fill" id="xpfill"></div><span id="xptext"></span></div>
+        </div>
+      </div>
+      <div id="buffs"></div>
+    </div>
+
+    <div id="party"></div>
+
+    <div id="hud-top-right">
+      <div id="floorbar">
+        <span id="floorname">Floor 1</span>
+        <span id="floorsub">—</span>
+      </div>
+      <canvas id="minimap" width="230" height="230"></canvas>
+      <div id="objective"></div>
+    </div>
+
+    <div id="hud-bottom">
+      <div id="hotbar"></div>
+      <div id="quickslots"></div>
+    </div>
+
+    <div id="log"></div>
+    <div id="toast"></div>
+    <div id="hint">WASD move &middot; Mouse aim &middot; LMB attack &middot; 1-4 abilities &middot; Q/R potions &middot; E interact &middot; Shift dash &middot; I inventory &middot; C character &middot; M map</div>
+  </div>
+
+  <!-- ===================== Overlays ===================== -->
+  <div id="overlay-root">
+
+    <section id="screen-loading" class="screen active">
+      <div class="panel narrow">
+        <h1 class="title">DUNGEON<span>RPG</span></h1>
+        <p class="sub">Descending into the dark…</p>
+        <div class="loadbar"><div id="loadfill"></div></div>
+        <p class="mono small" id="loadstatus">Loading assets…</p>
+      </div>
+    </section>
+
+    <section id="screen-menu" class="screen">
+      <div class="panel">
+        <h1 class="title">DUNGEON<span>RPG</span></h1>
+        <p class="sub">Ten floors. One way down. Bring friends.</p>
+
+        <label class="field">
+          <span>Your name</span>
+          <input id="input-name" maxlength="14" placeholder="Adventurer">
+        </label>
+
+        <div class="menu-actions">
+          <button class="btn primary" id="btn-solo">Play Solo</button>
+          <button class="btn" id="btn-host">Host a Party</button>
+        </div>
+
+        <div class="joinrow">
+          <input id="input-code" maxlength="24" placeholder="ROOM CODE">
+          <button class="btn" id="btn-join">Join</button>
+        </div>
+
+        <div id="saveslot" class="saveslot hidden">
+          <div class="saveinfo" id="saveinfo"></div>
+          <div class="saveactions">
+            <button class="btn small" id="btn-continue">Continue Run</button>
+            <button class="btn small danger" id="btn-delete">Delete</button>
+          </div>
+        </div>
+
+        <div class="menu-foot">
+          <button class="btn ghost small" id="btn-options">Options</button>
+          <span class="mono small dim" id="netstatus"></span>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-lobby" class="screen">
+      <div class="panel wide">
+        <div class="lobby-head">
+          <div>
+            <h2>Party Lobby</h2>
+            <p class="sub" id="lobby-sub">Choose a class, then ready up.</p>
+          </div>
+          <div class="roomcode">
+            <span class="mono small dim">ROOM CODE</span>
+            <div class="code" id="roomcode">—</div>
+            <button class="btn ghost small" id="btn-copy">Copy</button>
+          </div>
+        </div>
+
+        <div class="lobby-body">
+          <div id="classlist" class="classlist"></div>
+          <div class="classdetail" id="classdetail"></div>
+        </div>
+
+        <div class="lobby-foot">
+          <div id="partylist" class="partylist"></div>
+          <div class="lobby-buttons">
+            <label class="field inline hostonly">
+              <span>Seed</span>
+              <input id="input-seed" maxlength="16" placeholder="random">
+            </label>
+            <button class="btn" id="btn-ready">Ready</button>
+            <button class="btn primary hostonly" id="btn-begin" disabled>Begin Descent</button>
+            <button class="btn ghost" id="btn-leave">Leave</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-inventory" class="screen side">
+      <div class="panel wide sheet">
+        <div class="tabs">
+          <button class="tab active" data-tab="inv">Inventory</button>
+          <button class="tab" data-tab="char">Character</button>
+          <button class="tab" data-tab="spells">Spells</button>
+        </div>
+        <div class="sheetbody">
+          <div class="tabpane active" id="pane-inv"></div>
+          <div class="tabpane" id="pane-char"></div>
+          <div class="tabpane" id="pane-spells"></div>
+        </div>
+        <button class="btn ghost close" id="btn-closeinv">Close (I)</button>
+      </div>
+    </section>
+
+    <section id="screen-shop" class="screen side">
+      <div class="panel wide sheet">
+        <div class="shophead">
+          <h2 id="shopname">Merchant</h2>
+          <div class="gold" id="shopgold"></div>
+        </div>
+        <div class="shopbody">
+          <div class="shopcol">
+            <h3>For sale</h3>
+            <div id="shopstock" class="itemgrid"></div>
+          </div>
+          <div class="shopcol">
+            <h3>Your bag</h3>
+            <div id="shopbag" class="itemgrid"></div>
+          </div>
+        </div>
+        <button class="btn ghost close" id="btn-closeshop">Close (E)</button>
+      </div>
+    </section>
+
+    <section id="screen-map" class="screen">
+      <div class="panel mappanel">
+        <h2 id="maptitle">Floor Map</h2>
+        <canvas id="bigmap" width="760" height="760"></canvas>
+        <div class="maplegend" id="maplegend"></div>
+        <button class="btn ghost close" id="btn-closemap">Close (M)</button>
+      </div>
+    </section>
+
+    <section id="screen-descend" class="screen">
+      <div class="panel narrow">
+        <h2>Descend?</h2>
+        <p class="sub">Once you go down, there is no way back up.</p>
+        <div id="descend-party" class="descend-party"></div>
+        <div class="menu-actions">
+          <button class="btn primary" id="btn-descend-yes">Descend</button>
+          <button class="btn ghost" id="btn-descend-no">Not yet</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-end" class="screen">
+      <div class="panel wide">
+        <h1 class="title" id="endtitle">RUN OVER</h1>
+        <p class="sub" id="endsub"></p>
+        <div id="endstats"></div>
+        <div class="menu-actions">
+          <button class="btn primary" id="btn-endmenu">Back to Menu</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-options" class="screen">
+      <div class="panel narrow">
+        <h2>Options</h2>
+        <label class="field"><span>Music volume</span><input type="range" id="opt-music" min="0" max="100" value="35"></label>
+        <label class="field"><span>Effects volume</span><input type="range" id="opt-sfx" min="0" max="100" value="50"></label>
+        <label class="field"><span>Zoom</span><input type="range" id="opt-zoom" min="120" max="320" value="200"></label>
+        <label class="check"><input type="checkbox" id="opt-light" checked><span>Dynamic lighting</span></label>
+        <label class="check"><input type="checkbox" id="opt-shake" checked><span>Screen shake</span></label>
+        <div class="menu-actions">
+          <button class="btn primary" id="btn-optclose">Done</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-spectate" class="screen passthrough">
+      <div class="spectate-bar">
+        <span class="dead">YOU HAVE FALLEN</span>
+        <span class="mono small">Watching <b id="spectate-name">—</b> &middot; press SPACE to switch &middot; an ally can raise you</span>
+      </div>
+    </section>
+
+  </div>
+
+  <div id="tooltip" class="tooltip hidden"></div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

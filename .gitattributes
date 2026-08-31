@@ -1,0 +1,9 @@
+# Normalise text to LF in the repository so the checkout on Linux CI (and the
+# files GitHub Pages serves) match what was authored, regardless of the OS the
+# commit came from.
+* text=auto eol=lf
+
+*.png binary
+*.mp3 binary
+*.aseprite binary
+*.bat text eol=crlf

@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dungeon-rpg",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "serve.py",
+        "8123",
+        "--no-browser"
+      ],
+      "port": 8123
+    }
+  ]
+}
