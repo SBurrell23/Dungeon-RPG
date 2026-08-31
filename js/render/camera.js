@@ -11,8 +11,8 @@ export class Camera {
     this.canvas = canvas;
     this.x = 0;
     this.y = 0;
-    this.zoom = 2.0;
-    this.targetZoom = 2.0;
+    this.zoom = 2.7;
+    this.targetZoom = 2.7;
     this.shakeX = 0;
     this.shakeY = 0;
     this.leadX = 0;

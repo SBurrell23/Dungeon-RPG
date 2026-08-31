@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dungeon RPG</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="css/style.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -138,14 +139,14 @@
         <div class="tabs">
           <button class="tab active" data-tab="inv">Character Inventory</button>
           <button class="tab" data-tab="spells">Spells</button>
-          <button class="tab" data-tab="codex">Compendium</button>
           <button class="tab" data-tab="stats">Stats</button>
+          <button class="tab" data-tab="codex">Compendium</button>
         </div>
         <div class="sheetbody">
           <div class="tabpane active" id="pane-inv"></div>
           <div class="tabpane" id="pane-spells"></div>
-          <div class="tabpane" id="pane-codex"></div>
           <div class="tabpane" id="pane-stats"></div>
+          <div class="tabpane" id="pane-codex"></div>
         </div>
         <button class="closex" id="btn-closeinv" title="Close (I)" aria-label="Close">&times;</button>
       </div>
@@ -208,8 +209,7 @@
         <h2>Options</h2>
         <label class="field"><span>Music volume</span><input type="range" id="opt-music" min="0" max="100" value="35"></label>
         <label class="field"><span>Effects volume</span><input type="range" id="opt-sfx" min="0" max="100" value="50"></label>
-        <label class="field"><span>Zoom</span><input type="range" id="opt-zoom" min="120" max="320" value="200"></label>
-        <label class="check"><input type="checkbox" id="opt-light" checked><span>Dynamic lighting</span></label>
+        <label class="field"><span>Zoom</span><input type="range" id="opt-zoom" min="180" max="420" value="270"></label>
         <label class="check"><input type="checkbox" id="opt-shake" checked><span>Screen shake</span></label>
 
         <h3>Controls</h3>
@@ -232,6 +232,9 @@
 
         <div class="menu-actions">
           <button class="btn primary" id="btn-optclose">Done</button>
+        </div>
+        <div class="menu-actions ingameonly">
+          <button class="btn danger" id="btn-abandon">Abandon Run</button>
         </div>
       </div>
     </section>
@@ -273,6 +276,17 @@
 
         <div class="devinfo mono small dim" id="dev-info"></div>
         <button class="closex" id="dev-close" title="Close (`)" aria-label="Close">&times;</button>
+      </div>
+    </section>
+
+    <section id="screen-confirm" class="screen">
+      <div class="panel narrow">
+        <h2 id="confirm-title">Are you sure?</h2>
+        <p class="sub" id="confirm-body"></p>
+        <div class="menu-actions">
+          <button class="btn danger" id="confirm-yes">Confirm</button>
+          <button class="btn ghost" id="confirm-no">Cancel</button>
+        </div>
       </div>
     </section>
 

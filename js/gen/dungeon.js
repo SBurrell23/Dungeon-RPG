@@ -26,19 +26,25 @@ export const FLOOR = 1;
  * kept tonally close to their base - one green in an otherwise brown floor
  * reads as moss, three greens read as a lawn.
  */
+/**
+ * `tint` is multiplied over the baked terrain. The colours are close to white
+ * on purpose - enough to give each depth its own cast (green damp, then clay,
+ * then cold stone, then something sicklier) without recolouring the art or
+ * darkening it.
+ */
 export const THEMES = [
   // `moss` is the one deliberately off-palette accent; it is painted in much
   // smaller patches than the earth tones so it reads as growth, not lawn.
-  { name: 'Mossy Grotto', base: 0, accents: [2, 12], moss: 6, ambient: '#2e3026' },
-  { name: 'Root Hollows', base: 1, accents: [3, 13], moss: 8, ambient: '#2b2d23' },
-  { name: 'Clay Warrens', base: 2, accents: [0, 12, 9], moss: 7, ambient: '#30271f' },
-  { name: 'Sunken Halls', base: 3, accents: [2, 10, 14], ambient: '#2b231c' },
-  { name: 'Deepstone', base: 4, accents: [5, 13, 15], ambient: '#26262e' },
-  { name: 'The Undervault', base: 5, accents: [4, 15, 16], ambient: '#222229' },
-  { name: 'Ashen Depths', base: 5, accents: [3, 14, 16], ambient: '#2b1d1b' },
-  { name: 'Bonefields', base: 4, accents: [5, 16, 17], ambient: '#261a19' },
-  { name: 'The Black Reach', base: 3, accents: [5, 17, 11], ambient: '#1d1a26' },
-  { name: 'Throne of Rot', base: 3, accents: [4, 11, 10], ambient: '#1f1626' },
+  { name: 'Mossy Grotto', base: 0, accents: [2, 12], moss: 6, ambient: '#2e3026', tint: '#d8f0c8' },
+  { name: 'Root Hollows', base: 1, accents: [3, 13], moss: 8, ambient: '#2b2d23', tint: '#e2edbe' },
+  { name: 'Clay Warrens', base: 2, accents: [0, 12, 9], moss: 7, ambient: '#30271f', tint: '#ffd9ae' },
+  { name: 'Sunken Halls', base: 3, accents: [2, 10, 14], ambient: '#2b231c', tint: '#e8c9a6' },
+  { name: 'Deepstone', base: 4, accents: [5, 13, 15], ambient: '#26262e', tint: '#c4d2ea' },
+  { name: 'The Undervault', base: 5, accents: [4, 15, 16], ambient: '#222229', tint: '#b8bcdc' },
+  { name: 'Ashen Depths', base: 5, accents: [3, 14, 16], ambient: '#2b1d1b', tint: '#e6b8a8' },
+  { name: 'Bonefields', base: 4, accents: [5, 16, 17], ambient: '#261a19', tint: '#e0d6c0' },
+  { name: 'The Black Reach', base: 3, accents: [5, 17, 11], ambient: '#1d1a26', tint: '#a8a4d0' },
+  { name: 'Throne of Rot', base: 3, accents: [4, 11, 10], ambient: '#1f1626', tint: '#bcd8a8' },
 ];
 
 const ROOM_KIND = {
@@ -244,16 +250,21 @@ export const BLOCKING_PROPS = new Set(['chest', 'shrine', 'torch']);
 function buildBsp(rng, d, floorNo) {
   const margin = 3;
   const root = { x: margin, y: margin, w: d.w - margin * 2, h: d.h - margin * 2 };
-  // Smaller leaves on deeper floors => more, tighter rooms.
-  const minLeaf = Math.max(12, 20 - floorNo);
-  const maxLeaf = minLeaf * 2 + 4;
+  // Leaves are deliberately small: roughly half the area of the old ones, so a
+  // floor packs about twice as many rooms into the same footprint. Chambers you
+  // can take in at a glance, joined by short halls, read as a dungeon; large
+  // open halls read as a field with walls around it.
+  // Room size stays roughly constant with depth; it is the floor that grows, so
+  // deeper floors get *more* rooms rather than bigger or smaller ones.
+  const minLeaf = Math.max(11, 14 - Math.floor(floorNo * 0.3));
+  const maxLeaf = minLeaf * 2 + 8;
   const leaves = [];
 
   const split = (node, depth) => {
     const canSplitH = node.h >= minLeaf * 2;
     const canSplitV = node.w >= minLeaf * 2;
     const tooBig = node.w > maxLeaf || node.h > maxLeaf;
-    if ((!canSplitH && !canSplitV) || (!tooBig && (depth > 2 && rng.bool(0.22)))) {
+    if ((!canSplitH && !canSplitV) || (!tooBig && (depth > 3 && rng.bool(0.14)))) {
       leaves.push(node);
       return;
     }
@@ -303,8 +314,14 @@ function carveRooms(rng, d, leaves, floorNo) {
     const maxH = leaf.h - pad * 2;
     if (maxW < 5 || maxH < 5) continue;
 
-    const rw = rng.int(Math.max(5, Math.floor(maxW * 0.55)), maxW);
-    const rh = rng.int(Math.max(5, Math.floor(maxH * 0.55)), maxH);
+    // Most rooms sit well inside their leaf, which both shrinks them and puts
+    // real rock between neighbours. A minority take the whole leaf, so a floor
+    // still has the occasional hall worth walking into.
+    const grand = rng.bool(0.16);
+    const lo = grand ? 0.85 : 0.5;
+    const hi = grand ? 1.0 : 0.78;
+    const rw = rng.int(Math.max(5, Math.floor(maxW * lo)), Math.max(5, Math.floor(maxW * hi)));
+    const rh = rng.int(Math.max(5, Math.floor(maxH * lo)), Math.max(5, Math.floor(maxH * hi)));
     const rx = leaf.x + pad + rng.int(0, maxW - rw);
     const ry = leaf.y + pad + rng.int(0, maxH - rh);
 
@@ -471,12 +488,12 @@ function connectRooms(rng, d, leaves, floorNo) {
 
   // Chords: extra links between nearby rooms turn the tree into a graph with
   // loops, which reads as a real dungeon instead of a branching maze.
-  const extra = Math.max(2, Math.floor(rooms.length * 0.28));
+  const extra = Math.max(2, Math.floor(rooms.length * 0.16));
   const candidates = [];
   for (let i = 0; i < rooms.length; i++) {
     for (let j = i + 1; j < rooms.length; j++) {
       const dd = Math.hypot(rooms[i].cx - rooms[j].cx, rooms[i].cy - rooms[j].cy);
-      if (dd < 34) candidates.push({ a: rooms[i], b: rooms[j], d: dd });
+      if (dd < 24) candidates.push({ a: rooms[i], b: rooms[j], d: dd });
     }
   }
   candidates.sort((p, q) => p.d - q.d);
@@ -497,7 +514,7 @@ function connectRooms(rng, d, leaves, floorNo) {
 function carveCorridor(rng, d, a, b, floorNo) {
   d.edges.push([Math.min(a.id, b.id), Math.max(a.id, b.id)]);
   // Wider halls deeper down: room to fight in, and fewer doorway pile-ups.
-  const width = floorNo >= 6 ? rng.int(2, 3) : rng.int(2, 2) + (rng.bool(0.25) ? 1 : 0);
+  const width = floorNo >= 7 && rng.bool(0.3) ? 3 : 2;
 
   const ax = a.cx, ay = a.cy, bx = b.cx, by = b.cy;
   const horizontalFirst = rng.bool();
@@ -952,8 +969,8 @@ function decorate(rng, d, floorNo) {
 
     // Solid obstacles give melee something to break line of sight around, but
     // never in corridors and never enough to wall a room off.
-    if (room.kind !== ROOM_KIND.SHOP && interior.length > 20) {
-      const blockers = rng.int(0, Math.min(4, Math.floor(room.area / 40)));
+    if (room.kind !== ROOM_KIND.SHOP && interior.length > 12) {
+      const blockers = rng.int(0, Math.min(3, Math.floor(room.area / 34)));
       rng.shuffle(interior);
       for (let i = 0; i < blockers && i < interior.length; i++) {
         const [x, y] = interior[i];

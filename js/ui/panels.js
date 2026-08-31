@@ -290,8 +290,6 @@ export class Panels {
     }
     pane.appendChild(grid);
 
-    pane.appendChild(el('div', 'spellfoot',
-      'Tomes drop from chests, elites and bosses, or can be bought from a merchant.'));
   }
 
   /** Derived combat numbers and run totals - reference, not mid-fight reading. */

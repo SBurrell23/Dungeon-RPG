@@ -105,7 +105,7 @@ export const ABILITIES = {
   },
 
   consecrate: {
-    id: 'consecrate', name: 'Consecrate', school: 'holy', icon: ICON.tomeHoly,
+    id: 'consecrate', name: 'Consecrate', school: 'holy', icon: ICON.tomeHoly, tome: true, minFloor: 2,
     desc: 'Hallow the ground: burns enemies and mends allies who stand in it.',
     mana: 26, cooldown: 9, anim: 'attack2',
     cast(ctx) {

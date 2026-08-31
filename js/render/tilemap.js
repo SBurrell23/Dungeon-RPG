@@ -117,6 +117,16 @@ export class TileMap {
     // 4. Static decor.
     this.drawDecor(ctx, x0, y0, x1, y1);
 
+    // 5. Depth tint. Multiplying by a near-white colour shifts the whole
+    //    chunk's cast without noticeably darkening it, which is what makes one
+    //    floor feel different from the next using the same tileset.
+    if (d.theme.tint) {
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.fillStyle = d.theme.tint;
+      ctx.fillRect(0, 0, CHUNK_PX, CHUNK_PX);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
     return canvas;
   }
 

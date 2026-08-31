@@ -17,6 +17,9 @@ const ACTOR_SCALE = 1.35;
 /** Chests are drawn well below tile size so they read as a container on the floor. */
 const CHEST_SIZE = 24;
 
+/** Traps are translucent so they blend into the floor they are set in. */
+const TRAP_OPACITY = 0.72;
+
 /** Seconds of the descent ritual; mirrors DESCENT_TIME in game/world.js. */
 const DESCENT_SECONDS = 10;
 
@@ -221,7 +224,9 @@ export class Renderer {
     const pulse = 0.6 + 0.4 * Math.sin(this.time * 3.4 + p.x * 1.7 + p.y);
 
     ctx.save();
-    ctx.globalAlpha = clamp(p.vis ?? 1, 0, 1) * (armed ? 1 : 0.55);
+    // Held under full opacity so a trap reads as part of the floor rather
+    // than a decal sitting on top of it.
+    ctx.globalAlpha = clamp(p.vis ?? 1, 0, 1) * (armed ? TRAP_OPACITY : TRAP_OPACITY * 0.6);
 
     // Recessed plate: dark socket, stone face, chiselled highlight.
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -317,7 +322,7 @@ export class Renderer {
     // A hairline of danger colour around an armed plate.
     if (armed) {
       ctx.save();
-      ctx.globalAlpha = clamp(p.vis ?? 1, 0, 1) * (0.25 + pulse * 0.35);
+      ctx.globalAlpha = clamp(p.vis ?? 1, 0, 1) * TRAP_OPACITY * (0.25 + pulse * 0.35);
       ctx.strokeStyle = accent;
       ctx.lineWidth = 1.4;
       roundRect(ctx, cx - R, cy - R, R * 2, R * 2, 3);

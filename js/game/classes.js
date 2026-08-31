@@ -7,12 +7,12 @@
  * bought in the dungeon.
  */
 
-export const CLASS_ORDER = ['knight', 'templar', 'swordsman', 'soldier', 'archer', 'wizard', 'priest'];
+export const CLASS_ORDER = ['knight', 'templar', 'swordsman', 'archer', 'wizard', 'priest'];
 
 export const CLASSES = {
   knight: {
     id: 'knight',
-    name: 'Knight',
+    name: 'Warrior',
     tagline: 'Immovable. Holds the line while the party works.',
     role: 'Tank',
     color: '#c9d3e0',
@@ -31,18 +31,18 @@ export const CLASSES = {
   templar: {
     id: 'templar',
     name: 'Knight Templar',
-    tagline: 'Holy steel. Damage that also mends.',
-    role: 'Bruiser / Support',
+    tagline: 'Consecrated spear. Reach, and the discipline to use it.',
+    role: 'Bruiser / Skirmish',
     color: '#e8d9a8',
     base: { hp: 112, mp: 60, str: 8, dex: 4, int: 6, vit: 9, speed: 110 },
     growth: { hp: 12.5, mp: 4.5, str: 1.3, dex: 0.5, int: 0.9, vit: 1.35 },
     unarmedDamage: 6,
-    weaponFamily: 'longsword',
-    basicAttack: 'slash',
-    ability: 'consecrate',
-    startingGear: { weapon: { family: 'longsword', tier: 1 }, chest: { family: 'body', tier: 1 }, offhand: { family: 'shield', tier: 0 } },
+    weaponFamily: 'spear',
+    basicAttack: 'thrust',
+    ability: 'javelin',
+    startingGear: { weapon: { family: 'spear', tier: 1 }, chest: { family: 'body', tier: 1 }, offhand: { family: 'shield', tier: 0 } },
     startingPotions: { healthPotion: 2, manaPotion: 1 },
-    blurb: 'Consecrated ground burns the undead and knits the wounds of anyone standing in it.',
+    blurb: 'Strikes from just outside the enemy swing, then throws a javelin straight through the rank behind.',
   },
 
   swordsman: {
@@ -62,22 +62,6 @@ export const CLASSES = {
     blurb: 'The quickest blade in the party. Whirlwind clears a pack; nothing stops it clearing your health bar too.',
   },
 
-  soldier: {
-    id: 'soldier',
-    name: 'Soldier',
-    tagline: 'Spear and shield. Reach beats speed.',
-    role: 'Melee / Skirmish',
-    color: '#b9c8a8',
-    base: { hp: 108, mp: 42, str: 8, dex: 6, int: 4, vit: 8, speed: 116 },
-    growth: { hp: 12.5, mp: 3.0, str: 1.35, dex: 0.9, int: 0.4, vit: 1.25 },
-    unarmedDamage: 6,
-    weaponFamily: 'spear',
-    basicAttack: 'thrust',
-    ability: 'javelin',
-    startingGear: { weapon: { family: 'spear', tier: 1 }, chest: { family: 'body', tier: 1 }, helm: { family: 'helm', tier: 0 } },
-    startingPotions: { healthPotion: 2, manaPotion: 1 },
-    blurb: 'Strikes from just outside the enemy swing, then throws a javelin straight through the rank behind.',
-  },
 
   archer: {
     id: 'archer',
@@ -136,7 +120,7 @@ export const SCHOOL_AFFINITY = {
   arcane: ['wizard', 'archer', 'swordsman'],
   holy: ['priest', 'templar', 'knight'],
   nature: null,
-  war: ['knight', 'templar', 'swordsman', 'soldier'],
+  war: ['knight', 'templar', 'swordsman'],
 };
 
 export function getClass(id) {

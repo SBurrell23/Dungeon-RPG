@@ -229,44 +229,46 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 .vitals { min-height: 88px; }
 .namerow { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
 .namerow .lvl { color: var(--gold); }
+/* Vitals are built from flat bands with hard edges - no gradients, no rounding,
+   no tick overlay - so they sit next to the pixel art instead of on top of it. */
 .bar {
-  position: relative; height: 15px; margin-bottom: 4px;
-  background: linear-gradient(#07060a, #120e16);
-  border: 1px solid #2a2230; border-radius: 3px; overflow: hidden;
-  box-shadow: inset 0 2px 4px rgba(0,0,0,.75), 0 1px 0 rgba(255,255,255,.04);
+  position: relative; height: 16px; margin-bottom: 4px;
+  background: #14101a;
+  border: 2px solid #0b0910;
+  box-shadow: 0 0 0 1px #4a3f52;
+  overflow: hidden;
 }
 .bar .fill {
   height: 100%; width: 50%;
-  transition: width .18s cubic-bezier(.2,.8,.3,1);
+  transition: width .1s steps(6, end);
   position: relative;
 }
-/* Glass highlight across the top half of the fill. */
-.bar .fill::after {
-  content: ''; position: absolute; inset: 0 0 45% 0;
-  background: linear-gradient(rgba(255,255,255,.34), rgba(255,255,255,.06));
-  pointer-events: none;
+/* Two hard bands: a lit top row and a shaded base. */
+.bar .fill::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px;
+  background: rgba(255,255,255,.35);
 }
-/* Faint tick marks so you can read the bar at a glance, not just its colour. */
-.bar::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: repeating-linear-gradient(90deg, transparent 0 24px, rgba(0,0,0,.32) 24px 25px);
+.bar .fill::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 4px;
+  background: rgba(0,0,0,.32);
 }
 .bar span {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  font-size: 9px; color: rgba(255,255,255,.9); text-shadow: 0 1px 2px #000;
+  font-size: 9px; color: #fff;
+  text-shadow: 1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000;
   white-space: nowrap; overflow: hidden;
 }
-.bar.hp .fill { background: linear-gradient(180deg, #ff8e73, var(--hp) 55%, #8d2418); box-shadow: 0 0 10px rgba(255,90,60,.4); }
-.bar.mp .fill { background: linear-gradient(180deg, #8fbcff, var(--mp) 55%, #1f3f8f); box-shadow: 0 0 10px rgba(80,140,255,.35); }
-.bar.hp.low .fill { animation: hpPulse 0.9s ease-in-out infinite; }
+.bar.hp .fill { background: var(--hp); }
+.bar.mp .fill { background: var(--mp); }
+.bar.hp.low .fill { animation: hpPulse 0.7s steps(2, end) infinite; }
 @keyframes hpPulse {
-  0%, 100% { box-shadow: 0 0 10px rgba(255,90,60,.4); }
-  50% { box-shadow: 0 0 18px rgba(255,120,90,.95); }
+  0%, 100% { background: var(--hp); }
+  50% { background: var(--hp-hi); }
 }
 .bar.xp { height: 11px; }
 .bar.xp span { font-size: 8px; color: rgba(255,235,200,.9); }
-.bar.xp .fill { background: linear-gradient(180deg, #f0c473, var(--xp) 60%, #7a5620); }
+.bar.xp .fill { background: var(--xp); }
 
 #buffs { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; max-width: 320px; }
 .buffchip {
@@ -290,7 +292,9 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 #hud-top-right { position: absolute; right: 16px; top: 14px; text-align: right; }
 #floorbar {
   background: rgba(10,8,12,.72); border: 1px solid var(--line); border-radius: 3px;
-  padding: 7px 12px; margin-bottom: 8px; display: inline-block; text-align: right;
+  padding: 7px 12px; margin-bottom: 8px; text-align: right;
+  width: 230px;  /* matches #minimap so the panel reads as one column */
+  box-sizing: border-box;
 }
 #floorname { display: block; font-size: 15px; color: var(--gold); letter-spacing: .1em; }
 #floorsub { display: block; font-size: 10px; color: var(--dim); letter-spacing: .08em; }
@@ -502,12 +506,6 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 .cxdesc { font-size: 11px; color: var(--ink); line-height: 1.5; }
 .cxstats { display: flex; gap: 10px; margin-top: 6px; font-size: 10px; color: var(--dim); }
 
-.spellfoot {
-  position: absolute; right: 32px; bottom: 20px; max-width: 300px;
-  font-size: 10px; color: var(--dim); text-align: right; line-height: 1.5;
-}
-#pane-spells { position: relative; padding-bottom: 34px; }
-
 /* ===================== Options: controls ===================== */
 
 .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 16px; margin-bottom: 16px; }
@@ -554,6 +552,11 @@ kbd {
 .devgrid .btn { width: 100%; }
 .devgrid.floors { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
 .devinfo { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); line-height: 1.7; }
+#screen-confirm { z-index: 40; }
+#screen-confirm .panel { border-color: #7a2a2a; }
+#screen-confirm h2 { color: #ff9a9a; }
+.ingameonly { margin-top: 10px; }
+
 #screen-dev .panel { border-color: #4a7a4a; }
 #screen-dev h2 { color: #8fe08f; }
 

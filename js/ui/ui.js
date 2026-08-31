@@ -51,7 +51,7 @@ export function isScreenOpen(id) {
 /** Any modal that should swallow gameplay input. */
 export function anyModalOpen() {
   return ['screen-inventory', 'screen-shop', 'screen-map', 'screen-menu', 'screen-lobby',
-    'screen-end', 'screen-options', 'screen-descend', 'screen-loading']
+    'screen-end', 'screen-options', 'screen-descend', 'screen-loading', 'screen-confirm', 'screen-dev']
     .some(isScreenOpen);
 }
 
@@ -63,6 +63,41 @@ export function closeAllModals() {
 
 export function setHudVisible(v) {
   $('#hud').classList.toggle('hidden', !v);
+}
+
+/**
+ * In-game confirm dialog.
+ *
+ * A styled modal rather than `window.confirm`, which would look like a browser
+ * error in the middle of a dungeon. Resolves true/false.
+ */
+export function confirmDialog({ title, body, confirmLabel = 'Confirm', cancelLabel = 'Cancel' }) {
+  return new Promise((resolve) => {
+    $('#confirm-title').textContent = title;
+    $('#confirm-body').textContent = body;
+    const yes = $('#confirm-yes');
+    const no = $('#confirm-no');
+    yes.textContent = confirmLabel;
+    no.textContent = cancelLabel;
+
+    const finish = (value) => {
+      hideScreen('screen-confirm');
+      yes.removeEventListener('click', onYes);
+      no.removeEventListener('click', onNo);
+      window.removeEventListener('keydown', onKey, true);
+      resolve(value);
+    };
+    const onYes = () => finish(true);
+    const onNo = () => finish(false);
+    const onKey = (e) => {
+      if (e.code === 'Escape') { e.stopPropagation(); finish(false); }
+      if (e.code === 'Enter') { e.stopPropagation(); finish(true); }
+    };
+    yes.addEventListener('click', onYes);
+    no.addEventListener('click', onNo);
+    window.addEventListener('keydown', onKey, true);
+    showScreen('screen-confirm', { exclusive: false });
+  });
 }
 
 // ---------------------------------------------------------------------------

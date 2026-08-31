@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
+  <!-- Dungeon RPG: a torch-lit doorway in cavern rock. -->
+  <rect width="32" height="32" fill="#16121a"/>
+  <path d="M4 26h24v3H4z" fill="#4a3a2c"/>
+  <path d="M7 10h18v16H7z" fill="#0a0806"/>
+  <path d="M7 10h18v2H7zM7 10h2v16H7zM23 10h2v16h-2z" fill="#6b5540"/>
+  <path d="M9 7h14v3H9zM11 4h10v3H11z" fill="#5c4833"/>
+  <!-- flame -->
+  <path d="M14 15h4v6h-4z" fill="#ffc45c"/>
+  <path d="M15 12h2v3h-2z" fill="#ffe9a8"/>
+  <path d="M13 18h6v4h-6z" fill="#ff8a30"/>
+  <path d="M15 21h2v2h-2z" fill="#fff3d8"/>
+</svg>

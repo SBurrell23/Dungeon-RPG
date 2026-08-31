@@ -25,6 +25,7 @@ import { showEndScreen } from './ui/endscreen.js';
 import {
   $, showScreen, hideScreen, isScreenOpen, anyModalOpen, closeAllModals,
   setHudVisible, toast, pushLogLine, clearLog, bindButtonSounds, hideTooltip, el, escapeHtml,
+  confirmDialog,
 } from './ui/ui.js';
 
 import { initAudio, resumeAudio, playSfx, setSfxVolume } from './audio/sfx.js';
@@ -200,14 +201,30 @@ function bindMenu() {
   });
   $('#btn-delete').addEventListener('click', () => { deleteSave(); refreshSaveSlot(); });
 
-  $('#btn-options').addEventListener('click', () => showScreen('screen-options', { exclusive: false }));
+  $('#btn-options').addEventListener('click', () => openOptions());
+
+  // Leaving a run is destructive - the save stays, but the party stops where it
+  // is - so it asks first, in the game's own voice rather than the browser's.
+  $('#btn-abandon').addEventListener('click', async () => {
+    const ok = await confirmDialog({
+      title: 'Abandon this run?',
+      body: game.isOnline && net.isHost
+        ? 'The party returns to the menu and everyone is disconnected. Your saved run is kept, so the host can continue it later.'
+        : 'You will return to the main menu. Your saved run is kept, so you can continue it later.',
+      confirmLabel: 'Abandon run',
+      cancelLabel: 'Keep playing',
+    });
+    if (!ok) return;
+    if ((net.isHost || !game.isOnline) && game.world) saveWorld(game.world);
+    hideScreen('screen-options');
+    leaveToMenu();
+  });
   $('#btn-optclose').addEventListener('click', () => hideScreen('screen-options'));
   $('#btn-endmenu').addEventListener('click', () => leaveToMenu());
 
   $('#opt-music').addEventListener('input', (e) => setMusicVolume(e.target.value / 100));
   $('#opt-sfx').addEventListener('input', (e) => setSfxVolume(e.target.value / 100));
   $('#opt-zoom').addEventListener('input', (e) => { camera.targetZoom = e.target.value / 100; });
-  $('#opt-light').addEventListener('change', (e) => { renderer.enableLighting = e.target.checked; });
   $('#opt-shake').addEventListener('change', (e) => { game.shakeEnabled = e.target.checked; });
 
   $('#btn-closemap').addEventListener('click', () => toggleMap(false));
@@ -536,6 +553,12 @@ function applySell(p, uid) {
 // Hotkeys
 // ---------------------------------------------------------------------------
 
+/** Options doubles as the pause menu; only offer Abandon inside a run. */
+function openOptions() {
+  document.querySelector('.ingameonly').style.display = game.mode === 'playing' ? '' : 'none';
+  showScreen('screen-options', { exclusive: false });
+}
+
 function bindContextMenuGuards() {
   // The canvas handles this itself; the panels need it too so right-click-to-drop
   // does not also open the browser menu on top of the inventory.
@@ -552,7 +575,7 @@ function bindHotkeys() {
     if (e.code === 'Escape') {
       if (isScreenOpen('screen-options')) { hideScreen('screen-options'); return; }
       if (anyModalOpen() && game.mode === 'playing') { closeAllModals(); hideTooltip(); return; }
-      if (game.mode === 'playing') showScreen('screen-options', { exclusive: false });
+      if (game.mode === 'playing') openOptions();
       return;
     }
     if (e.code === 'Backquote' || (e.code === 'KeyD' && e.ctrlKey && e.shiftKey)) {
