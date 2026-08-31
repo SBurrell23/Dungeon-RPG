@@ -50,7 +50,7 @@
 
     <div id="log"></div>
     <div id="toast"></div>
-    <div id="hint">WASD move &middot; Mouse aim &middot; LMB attack &middot; 1-4 abilities &middot; Q/R potions &middot; E interact &middot; Shift dash &middot; I inventory &middot; C character &middot; M map</div>
+    <div id="hint">WASD move &middot; Mouse aim &middot; LMB attack &middot; 1-4 abilities &middot; Q/R potions &middot; E interact &middot; Shift dash &middot; I inventory &middot; C stats &middot; P spells &middot; M map</div>
   </div>
 
   <!-- ===================== Overlays ===================== -->
@@ -137,14 +137,14 @@
     <section id="screen-inventory" class="screen side">
       <div class="panel wide sheet">
         <div class="tabs">
-          <button class="tab active" data-tab="inv">Inventory</button>
-          <button class="tab" data-tab="char">Character</button>
+          <button class="tab active" data-tab="inv">Character Inventory</button>
           <button class="tab" data-tab="spells">Spells</button>
+          <button class="tab" data-tab="stats">Stats</button>
         </div>
         <div class="sheetbody">
           <div class="tabpane active" id="pane-inv"></div>
-          <div class="tabpane" id="pane-char"></div>
           <div class="tabpane" id="pane-spells"></div>
+          <div class="tabpane" id="pane-stats"></div>
         </div>
         <button class="btn ghost close" id="btn-closeinv">Close (I)</button>
       </div>

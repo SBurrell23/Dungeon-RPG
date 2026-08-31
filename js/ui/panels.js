@@ -1,15 +1,15 @@
 import {
-  $, el, iconUrl, bindTooltip, itemTooltip, rarityClass, itemLocked, escapeHtml,
-  showScreen, hideScreen, isScreenOpen, hideTooltip, toast,
+  $, el, iconUrl, portraitUrl, bindTooltip, itemTooltip, rarityClass, itemLocked,
+  escapeHtml, showScreen, hideScreen, isScreenOpen, hideTooltip, toast,
 } from './ui.js';
 import { SLOTS, SLOT_LABEL, SELL_RATE, BUY_MARKUP, INVENTORY_SIZE } from '../game/items.js';
-import { PRIMARIES, PRIMARY_LABEL, PRIMARY_BLURB, xpToNext } from '../game/stats.js';
+import { PRIMARIES, PRIMARY_LABEL, PRIMARY_BLURB, PRIMARY_ICON, xpToNext } from '../game/stats.js';
 import { getAbility, SCHOOLS } from '../game/abilities.js';
 import { getClass } from '../game/classes.js';
 import { playSfx } from '../audio/sfx.js';
 
 /**
- * Inventory, character sheet, spellbook and shop.
+ * Inventory, spellbook, run stats and the shop.
  *
  * These panels never mutate game state directly - they call through
  * `actions`, which on the host applies immediately and on a client sends the
@@ -26,14 +26,7 @@ export class Panels {
 
   bindStatic() {
     for (const tab of document.querySelectorAll('#screen-inventory .tab')) {
-      tab.addEventListener('click', () => {
-        this.activeTab = tab.dataset.tab;
-        for (const t of document.querySelectorAll('#screen-inventory .tab')) t.classList.toggle('active', t === tab);
-        for (const p of document.querySelectorAll('#screen-inventory .tabpane')) {
-          p.classList.toggle('active', p.id === `pane-${this.activeTab}`);
-        }
-        this.refresh();
-      });
+      tab.addEventListener('click', () => this.selectTab(tab.dataset.tab));
     }
     $('#btn-closeinv').addEventListener('click', () => this.closeInventory());
     $('#btn-closeshop').addEventListener('click', () => this.closeShop());
@@ -41,8 +34,19 @@ export class Panels {
 
   setPlayer(p) { this.player = p; }
 
+  selectTab(tab) {
+    this.activeTab = tab;
+    for (const t of document.querySelectorAll('#screen-inventory .tab')) {
+      t.classList.toggle('active', t.dataset.tab === tab);
+    }
+    for (const p of document.querySelectorAll('#screen-inventory .tabpane')) {
+      p.classList.toggle('active', p.id === `pane-${tab}`);
+    }
+    this.refresh();
+  }
+
   // -------------------------------------------------------------------------
-  // Inventory / character / spells
+  // Sheet
   // -------------------------------------------------------------------------
 
   toggleInventory(tab) {
@@ -50,11 +54,7 @@ export class Panels {
       this.closeInventory();
       return;
     }
-    if (tab) {
-      this.activeTab = tab;
-      for (const t of document.querySelectorAll('#screen-inventory .tab')) t.classList.toggle('active', t.dataset.tab === tab);
-      for (const p of document.querySelectorAll('#screen-inventory .tabpane')) p.classList.toggle('active', p.id === `pane-${tab}`);
-    }
+    if (tab) this.selectTab(tab);
     showScreen('screen-inventory');
     this.refresh();
   }
@@ -68,21 +68,41 @@ export class Panels {
     if (!this.player) return;
     if (isScreenOpen('screen-inventory')) {
       if (this.activeTab === 'inv') this.renderInventory();
-      else if (this.activeTab === 'char') this.renderCharacter();
-      else this.renderSpells();
+      else if (this.activeTab === 'spells') this.renderSpells();
+      else this.renderStats();
     }
     if (isScreenOpen('screen-shop')) this.renderShop();
   }
 
+  /**
+   * The main sheet: identity, equipment and live stats down the left, bag on
+   * the right.
+   *
+   * Attributes sit beside the bag on purpose - unspent points and a thin stat
+   * line should be the first thing you see when you open your inventory, not
+   * something hidden behind a second tab.
+   */
   renderInventory() {
     const p = this.player;
+    const cls = getClass(p.classId);
+    const s = p.stats;
     const pane = $('#pane-inv');
     pane.innerHTML = '';
 
     const layout = el('div', 'invlayout');
+    const left = el('div', 'invleft');
 
-    // Equipment doll.
-    const left = el('div');
+    const head = el('div', 'charhead');
+    const port = el('div', 'charportrait');
+    port.style.backgroundImage = `url(${portraitUrl('hero', p.classId)})`;
+    head.appendChild(port);
+    const who = el('div');
+    who.appendChild(el('div', 'charname', p.name));
+    who.appendChild(el('div', 'charsub', `${cls.name} - Level ${p.level}`));
+    who.appendChild(el('div', 'charsub goldtext', `${p.gold} gold`));
+    head.appendChild(who);
+    left.appendChild(head);
+
     left.appendChild(el('h3', null, 'Equipped'));
     const grid = el('div', 'equipgrid');
     for (const slot of SLOTS) {
@@ -103,100 +123,33 @@ export class Panels {
     }
     left.appendChild(grid);
 
-    const goldRow = el('div', 'pointsleft', `Gold: ${p.gold}`);
-    left.appendChild(goldRow);
-    left.appendChild(el('div', 'small dim', 'Left-click a bag item to equip or use it. Right-click to drop it for a teammate. Click an equipped item to remove it.'));
-    layout.appendChild(left);
-
-    // Bag.
-    const right = el('div');
-    right.appendChild(el('h3', null, `Bag (${p.inventory.length}/${INVENTORY_SIZE})`));
-    const bag = el('div', 'itemgrid');
-    for (const item of p.inventory) {
-      bag.appendChild(this.itemCell(item, {
-        onClick: () => {
-          if (item.type === 'equipment') {
-            if (itemLocked(item, p)) {
-              toast(`${item.name} needs level ${item.levelReq} - you are level ${p.level}`, 2600);
-              playSfx('error');
-              return;
-            }
-            this.actions.equip(item.uid);
-            playSfx('equip', 0.8);
-          } else if (item.type === 'consumable') this.actions.useItem(item.uid);
-          else if (item.type === 'tome') this.actions.learnTome(item.uid);
-          this.refresh();
-        },
-        // Right-click drops on the ground where anyone can grab it - the
-        // only item-trading mechanism the party has.
-        onRightClick: () => {
-          this.actions.dropItem(item.uid);
-          this.refresh();
-        },
-      }));
-    }
-    for (let i = p.inventory.length; i < 24; i++) bag.appendChild(el('div', 'itemcell empty'));
-    right.appendChild(bag);
-    layout.appendChild(right);
-
-    pane.appendChild(layout);
-  }
-
-  itemCell(item, { onClick, onRightClick, price, priceLabel } = {}) {
-    const locked = itemLocked(item, this.player);
-    const cell = el('div', `itemcell ${rarityClass(item)}${locked ? ' locked' : ''}`);
-    cell.appendChild(Object.assign(new Image(), { src: iconUrl(item.icon) }));
-    if (item.qty > 1) cell.appendChild(el('span', 'qty', item.qty));
-    if (price != null) cell.appendChild(el('span', 'price', `${price}g`));
-    // A red level badge is readable at a glance across a full bag.
-    if (locked) cell.appendChild(el('span', 'lockbadge', `L${item.levelReq}`));
-    bindTooltip(cell, () => itemTooltip(item, this.player, { price, priceLabel }));
-    if (onClick) cell.addEventListener('click', onClick);
-    if (onRightClick) {
-      cell.addEventListener('contextmenu', (e) => { e.preventDefault(); onRightClick(); });
-    }
-    return cell;
-  }
-
-  renderCharacter() {
-    const p = this.player;
-    const cls = getClass(p.classId);
-    const s = p.stats;
-    const pane = $('#pane-char');
-    pane.innerHTML = '';
-
-    const head = el('div');
-    head.appendChild(el('h2', null, `${escapeHtml(p.name)} - ${cls.name}`));
-    head.appendChild(el('p', 'sub', `Level ${p.level} &middot; ${Math.round(p.xp)} / ${xpToNext(p.level)} xp`.replace('&middot;', '·')));
-    pane.appendChild(head);
-
     if (p.unspentPoints > 0) {
-      pane.appendChild(el('div', 'pointsleft', `${p.unspentPoints} attribute point${p.unspentPoints > 1 ? 's' : ''} to spend`));
+      left.appendChild(el('div', 'pointsleft', `${p.unspentPoints} attribute point${p.unspentPoints > 1 ? 's' : ''} to spend`));
     }
 
-    const cols = el('div', 'charstats');
-
-    const primary = el('div', 'statblock');
-    primary.appendChild(el('h3', null, 'Attributes'));
+    left.appendChild(el('h3', null, 'Attributes'));
+    const attrs = el('div', 'attrlist');
     for (const key of PRIMARIES) {
-      const row = el('div', 'statline');
-      const k = el('span', 'k', PRIMARY_LABEL[key]);
-      row.appendChild(k);
-      const right = el('span', 'alloc');
-      right.appendChild(el('span', 'v', s[key]));
+      const row = el('div', 'attrrow');
+      row.appendChild(Object.assign(new Image(), { className: 'attricon', src: iconUrl(PRIMARY_ICON[key]) }));
+      row.appendChild(el('span', 'attrname', PRIMARY_LABEL[key]));
+      row.appendChild(el('span', 'attrval', s[key]));
       if (p.unspentPoints > 0) {
-        const plus = el('button', 'btn small', '+');
-        plus.addEventListener('click', () => { this.actions.allocate(key); this.refresh(); });
-        right.appendChild(plus);
+        const plus = el('button', 'btn small attrplus', '+');
+        plus.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.actions.allocate(key);
+          this.refresh();
+        });
+        row.appendChild(plus);
       }
-      row.appendChild(right);
       bindTooltip(row, () => `<div class="tt-name">${PRIMARY_LABEL[key]}</div><div class="tt-main">${PRIMARY_BLURB[key]}</div>`);
-      primary.appendChild(row);
+      attrs.appendChild(row);
     }
-    cols.appendChild(primary);
+    left.appendChild(attrs);
 
-    const derived = el('div', 'statblock');
-    derived.appendChild(el('h3', null, 'Combat'));
+    left.appendChild(el('h3', null, 'Combat'));
+    const combat = el('div', 'statblock tight');
     const rows = [
       ['Health', `${Math.ceil(p.hp)} / ${Math.round(s.maxHp)}`],
       ['Mana', `${Math.ceil(p.mp)} / ${Math.round(s.maxMp)}`],
@@ -220,28 +173,60 @@ export class Panels {
       const row = el('div', 'statline');
       row.appendChild(el('span', 'k', k));
       row.appendChild(el('span', 'v', v));
-      derived.appendChild(row);
+      combat.appendChild(row);
     }
-    cols.appendChild(derived);
-    pane.appendChild(cols);
+    left.appendChild(combat);
+    layout.appendChild(left);
 
-    const run = el('div', 'statblock');
-    run.style.marginTop = '20px';
-    run.appendChild(el('h3', null, 'This run'));
-    const st = p.stat;
-    for (const [k, v] of [
-      ['Kills', st.kills], ['Damage dealt', Math.round(st.damageDealt)],
-      ['Damage taken', Math.round(st.damageTaken)], ['Healing done', Math.round(st.healingDone)],
-      ['Gold earned', st.goldEarned], ['Items found', st.itemsFound],
-      ['Chests opened', st.chestsOpened], ['Traps triggered', st.trapsTriggered],
-      ['Times downed', st.deaths],
-    ]) {
-      const row = el('div', 'statline');
-      row.appendChild(el('span', 'k', k));
-      row.appendChild(el('span', 'v', v));
-      run.appendChild(row);
+    const right = el('div', 'invright');
+    right.appendChild(el('h3', null, `Bag (${p.inventory.length}/${INVENTORY_SIZE})`));
+    const bag = el('div', 'itemgrid');
+    for (const item of p.inventory) {
+      bag.appendChild(this.itemCell(item, {
+        onClick: () => {
+          if (item.type === 'equipment') {
+            if (itemLocked(item, p)) {
+              toast(`${item.name} needs level ${item.levelReq} - you are level ${p.level}`, 2600);
+              playSfx('error');
+              return;
+            }
+            this.actions.equip(item.uid);
+            playSfx('equip', 0.8);
+          } else if (item.type === 'consumable') this.actions.useItem(item.uid);
+          else if (item.type === 'tome') this.actions.learnTome(item.uid);
+          this.refresh();
+        },
+        // Right-click drops on the ground where anyone can grab it - the only
+        // item-trading mechanism the party has.
+        onRightClick: () => {
+          this.actions.dropItem(item.uid);
+          this.refresh();
+        },
+      }));
     }
-    pane.appendChild(run);
+    for (let i = p.inventory.length; i < 32; i++) bag.appendChild(el('div', 'itemcell empty'));
+    right.appendChild(bag);
+    right.appendChild(el('div', 'small dim baghint',
+      'Left-click to equip or use. Right-click to drop it for a teammate. Click an equipped item to take it off.'));
+    layout.appendChild(right);
+
+    pane.appendChild(layout);
+  }
+
+  itemCell(item, { onClick, onRightClick, price, priceLabel } = {}) {
+    const locked = itemLocked(item, this.player);
+    const cell = el('div', `itemcell ${rarityClass(item)}${locked ? ' locked' : ''}`);
+    cell.appendChild(Object.assign(new Image(), { src: iconUrl(item.icon) }));
+    if (item.qty > 1) cell.appendChild(el('span', 'qty', item.qty));
+    if (price != null) cell.appendChild(el('span', 'price', `${price}g`));
+    // A red level badge is readable at a glance across a full bag.
+    if (locked) cell.appendChild(el('span', 'lockbadge', `L${item.levelReq}`));
+    bindTooltip(cell, () => itemTooltip(item, this.player, { price, priceLabel }));
+    if (onClick) cell.addEventListener('click', onClick);
+    if (onRightClick) {
+      cell.addEventListener('contextmenu', (e) => { e.preventDefault(); onRightClick(); });
+    }
+    return cell;
   }
 
   renderSpells() {
@@ -260,7 +245,7 @@ export class Panels {
       const body = el('div');
       body.appendChild(el('div', 'sn', ab.name + (bound >= 0 ? `  [${bound + 1}]` : '')));
       body.appendChild(el('div', 'sd', ab.desc));
-      body.appendChild(el('div', 'sm', `${ab.mana} mana · ${ab.cooldown}s · ${SCHOOLS[ab.school]?.name || ''}`));
+      body.appendChild(el('div', 'sm', `${ab.mana} mana - ${ab.cooldown}s - ${SCHOOLS[ab.school]?.name || ''}`));
       card.appendChild(body);
       card.addEventListener('click', () => {
         if (bound >= 0) this.actions.bindSpell(bound, null);
@@ -278,6 +263,36 @@ export class Panels {
     if (p.knownSpells.length <= 1) {
       pane.appendChild(el('p', 'sub', 'Find or buy spell tomes in the dungeon to learn more. Tomes drop from chests, elites and bosses.'));
     }
+  }
+
+  /** Run totals - interesting, but not something you need mid-fight. */
+  renderStats() {
+    const p = this.player;
+    const pane = $('#pane-stats');
+    pane.innerHTML = '';
+    pane.appendChild(el('h2', null, `${escapeHtml(p.name)} - this run`));
+    pane.appendChild(el('p', 'sub', `Level ${p.level} - ${Math.round(p.xp)} / ${xpToNext(p.level)} experience`));
+
+    const block = el('div', 'statblock');
+    const st = p.stat;
+    for (const [k, v] of [
+      ['Kills', st.kills],
+      ['Damage dealt', Math.round(st.damageDealt)],
+      ['Damage taken', Math.round(st.damageTaken)],
+      ['Healing done', Math.round(st.healingDone)],
+      ['Gold earned', st.goldEarned],
+      ['Items found', st.itemsFound],
+      ['Chests opened', st.chestsOpened],
+      ['Traps triggered', st.trapsTriggered],
+      ['Floors cleared', st.floorsCleared],
+      ['Times downed', st.deaths],
+    ]) {
+      const row = el('div', 'statline');
+      row.appendChild(el('span', 'k', k));
+      row.appendChild(el('span', 'v', String(v)));
+      block.appendChild(row);
+    }
+    pane.appendChild(block);
   }
 
   // -------------------------------------------------------------------------

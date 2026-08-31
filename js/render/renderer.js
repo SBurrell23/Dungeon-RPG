@@ -14,8 +14,11 @@ const SPRITE = 100;
  */
 const ACTOR_SCALE = 1.35;
 
-/** Chests are drawn below tile size so they read as objects, not architecture. */
-const CHEST_SIZE = 38;
+/** Chests are drawn well below tile size so they read as a container on the floor. */
+const CHEST_SIZE = 24;
+
+/** Seconds of the descent ritual; mirrors DESCENT_TIME in game/world.js. */
+const DESCENT_SECONDS = 10;
 
 /**
  * World renderer.
@@ -105,22 +108,18 @@ export class Renderer {
         }
         case 'stairs': {
           const img = this.animFrame(ANIM_TILES.stairsDown);
-          ctx.save();
-          if (!world.stairsUnlocked) ctx.globalAlpha = 0.35;
           if (img) ctx.drawImage(img, px, py - TILE, img.width, img.height);
+          const pulse = 0.5 + 0.5 * Math.sin(this.time * 3);
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = 0.25 + pulse * 0.25;
+          const g = ctx.createRadialGradient(px + TILE / 2, py + TILE / 2, 4, px + TILE / 2, py + TILE / 2, 90);
+          g.addColorStop(0, '#7fe6ff');
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = g;
+          ctx.fillRect(px - 60, py - 60, 170, 170);
           ctx.restore();
-          if (world.stairsUnlocked) {
-            const pulse = 0.5 + 0.5 * Math.sin(this.time * 3);
-            ctx.save();
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.globalAlpha = 0.25 + pulse * 0.25;
-            const g = ctx.createRadialGradient(px + TILE / 2, py + TILE / 2, 4, px + TILE / 2, py + TILE / 2, 90);
-            g.addColorStop(0, '#7fe6ff');
-            g.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = g;
-            ctx.fillRect(px - 60, py - 60, 170, 170);
-            ctx.restore();
-          }
+          this.drawDescentBar(ctx, world, px, py);
           break;
         }
         case 'entrance': {
@@ -144,7 +143,7 @@ export class Renderer {
           const [sc, sr] = p.opened ? set.open : set.closed;
           const off = (TILE - CHEST_SIZE) / 2;
           ctx.drawImage(cavern, sc * TILE, sr * TILE, TILE, TILE,
-            px + off, py + off + 4, CHEST_SIZE, CHEST_SIZE);
+            px + off, py + off + 6, CHEST_SIZE, CHEST_SIZE);
           break;
         }
         case 'trap': {
@@ -156,6 +155,52 @@ export class Renderer {
           break;
       }
     }
+  }
+
+  /**
+   * Progress of the descent ritual, floating above the marker. Only drawn while
+   * somebody is actually channelling, plus a red flash when it breaks.
+   */
+  drawDescentBar(ctx, world, px, py) {
+    const d = world.descent;
+    if (!d) return;
+    const cx = px + TILE / 2;
+    const top = py - TILE - 16;
+
+    if (d.flash > 0) {
+      ctx.save();
+      ctx.globalAlpha = clamp(d.flash, 0, 1);
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 11px "Courier New", monospace';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,.85)';
+      ctx.strokeText('INTERRUPTED', cx, top);
+      ctx.fillStyle = '#ff6b6b';
+      ctx.fillText('INTERRUPTED', cx, top);
+      ctx.restore();
+    }
+    if (d.progress <= 0) return;
+
+    const W = 72, H = 7;
+    const frac = clamp(d.progress / DESCENT_SECONDS, 0, 1);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,.7)';
+    ctx.fillRect(cx - W / 2 - 1, top - 1, W + 2, H + 2);
+    ctx.fillStyle = '#7fe6ff';
+    ctx.fillRect(cx - W / 2, top, W * frac, H);
+    ctx.fillStyle = 'rgba(255,255,255,.25)';
+    ctx.fillRect(cx - W / 2, top, W * frac, 2);
+
+    // "Unlocking" with animated dots, so it reads as an active ritual.
+    const dots = '.'.repeat(1 + (Math.floor(this.time * 3) % 3));
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 10px "Courier New", monospace';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,.85)';
+    ctx.strokeText(`Unlocking${dots}`, cx, top - 5);
+    ctx.fillStyle = '#bff0ff';
+    ctx.fillText(`Unlocking${dots}`, cx, top - 5);
+    ctx.restore();
   }
 
   /**
@@ -438,19 +483,19 @@ export class Renderer {
       ctx.restore();
     }
 
-    // Interaction prompt.
+    // Interaction prompt. The stairs are excluded: they are not pressed, they
+    // are stood on, and the ritual bar says so far better than a key hint.
     if (localPlayer && !localPlayer.downed) {
       const prop = world.interactTarget(localPlayer);
-      if (prop) {
+      if (prop && prop.type !== 'stairs') {
         const c = world.dungeon.tileCenter(prop.x, prop.y);
         const label = {
           chest: 'Open', shrine: 'Pray', merchant: 'Trade',
-          stairs: world.stairsUnlocked ? 'Descend' : 'Sealed',
         }[prop.type] || 'Use';
         ctx.font = 'bold 11px "Courier New", monospace';
         ctx.fillStyle = 'rgba(0,0,0,0.7)';
         ctx.fillRect(c.x - 34, c.y - 52, 68, 15);
-        ctx.fillStyle = world.stairsUnlocked || prop.type !== 'stairs' ? '#ffe9a8' : '#ff8080';
+        ctx.fillStyle = '#ffe9a8';
         ctx.fillText(`[E] ${label}`, c.x, c.y - 41);
       }
     }
@@ -704,7 +749,7 @@ export class Renderer {
       addLight(p.x * TILE + TILE / 2, p.y * TILE + 10, 190 * flicker, '#ffb35c', 0.95);
     }
     for (const p of d.props) {
-      if (p.type === 'stairs' && world.stairsUnlocked) addLight(p.x * TILE + 24, p.y * TILE + 24, 200, '#7fe6ff', 0.9);
+      if (p.type === 'stairs') addLight(p.x * TILE + 24, p.y * TILE + 24, 200, '#7fe6ff', 0.9);
       if (p.type === 'shrine' && !p.used) addLight(p.x * TILE + 24, p.y * TILE + 24, 170, '#8fd8ff', 0.8);
       if (p.type === 'entrance') addLight(p.x * TILE + 24, p.y * TILE + 24, 150, '#9fe0a0', 0.7);
     }

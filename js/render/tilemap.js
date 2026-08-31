@@ -1,4 +1,4 @@
-import { TILE, FLOOR_VARIANTS, DECOR, VOID_COLOR } from '../assets/manifest.js';
+import { TILE, FLOOR_VARIANTS, VOID_COLOR, decorPlacement } from '../assets/manifest.js';
 import { drawLayer, drawRim } from '../gen/autotile.js';
 
 const CHUNK = 12;             // tiles per chunk edge
@@ -125,14 +125,12 @@ export class TileMap {
     const sheet = this.assets.img('cavern');
     if (!sheet) return;
     for (const dec of d.decor) {
-      // Multi-tile props are anchored bottom-centre, so allow a tile of overhang.
-      if (dec.x < x0 - 2 || dec.x >= x1 + 2 || dec.y < y0 - 3 || dec.y >= y1 + 2) continue;
-      const src = DECOR[dec.kind];
-      if (!src) continue;
-      const [sc, sr, sw, sh] = src;
-      const px = (dec.x - x0) * TILE;
-      const py = (dec.y - y0) * TILE - (sh - 1) * TILE;
-      ctx.drawImage(sheet, sc * TILE, sr * TILE, sw * TILE, sh * TILE, px, py, sw * TILE, sh * TILE);
+      // Props are anchored bottom-centre and can be wider or taller than their
+      // tile, so cull generously and let the chunk canvas clip.
+      if (dec.x < x0 - 3 || dec.x >= x1 + 3 || dec.y < y0 - 3 || dec.y >= y1 + 3) continue;
+      const pl = decorPlacement(dec.kind, dec.x - x0, dec.y - y0);
+      if (!pl) continue;
+      ctx.drawImage(sheet, pl.sx, pl.sy, pl.sw, pl.sh, pl.dx, pl.dy, pl.sw, pl.sh);
     }
   }
 }

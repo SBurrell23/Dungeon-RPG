@@ -80,14 +80,18 @@ export function buildSnapshot(world) {
   return {
     t: world.time,
     players, mobs, projectiles, pickups, zones,
-    unlocked: world.stairsUnlocked ? 1 : 0,
+    descent: [world.descent.playerId || 0, +world.descent.progress.toFixed(2), +world.descent.flash.toFixed(2)],
     shake: Math.round(world.shakeAmount),
   };
 }
 
 /** Apply a snapshot to a client-side world. */
 export function applySnapshot(world, snap) {
-  world.stairsUnlocked = !!snap.unlocked;
+  if (snap.descent) {
+    world.descent.playerId = snap.descent[0] || null;
+    world.descent.progress = snap.descent[1];
+    world.descent.flash = snap.descent[2];
+  }
   if (snap.shake > world.shakeAmount) world.shakeAmount = snap.shake;
 
   for (const row of snap.players) {
@@ -163,8 +167,7 @@ export function buildFloorManifest(world) {
       Math.round(m.x), Math.round(m.y), Math.round(m.stats.maxHp), m.roomId ?? -1, m.name,
     ]),
     npcs: world.npcs.map((n) => [n.id, n.role, n.spriteId, n.tint, n.name, Math.round(n.x), Math.round(n.y)]),
-    props: world.dungeon.props.map((p, i) => [i, p.opened ? 1 : 0, p.used ? 1 : 0, p.armed === false ? 0 : 1, p.hidden ? 1 : 0]),
-    unlocked: world.stairsUnlocked ? 1 : 0,
+    props: world.dungeon.props.map((p, i) => [i, p.opened ? 1 : 0, p.used ? 1 : 0, p.armed === false ? 0 : 1, p.spent ? 1 : 0]),
   };
 }
 
@@ -210,9 +213,8 @@ export function applyFloorManifest(world, manifest) {
     if (!prop) continue;
     prop.opened = !!row[1];
     prop.used = !!row[2];
-    if (prop.type === 'trap') { prop.armed = !!row[3]; prop.hidden = !!row[4]; }
+    if (prop.type === 'trap') { prop.armed = !!row[3]; prop.spent = !!row[4]; }
   }
-  world.stairsUnlocked = !!manifest.unlocked;
 }
 
 // ---------------------------------------------------------------------------

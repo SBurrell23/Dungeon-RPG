@@ -1,8 +1,8 @@
-import { TILE, SOLID_DECOR, DECOR } from '../assets/manifest.js';
+import { TILE, SOLID_DECOR, decorPlacement } from '../assets/manifest.js';
 import { RNG } from '../core/rng.js';
 import { clamp, dist, dist2, TAU, retain, nextId } from '../core/util.js';
 import { bus } from '../core/events.js';
-import { generateFloor } from '../gen/dungeon.js';
+import { generateFloor, BLOCKING_PROPS } from '../gen/dungeon.js';
 import { FlowField, updateMonster } from './ai.js';
 import {
   createPlayer, createMonster, createNpc, createProjectile, createPickup,
@@ -41,6 +41,10 @@ const NETWORKED_FX = new Set(['slash', 'blast', 'sheet', 'ward', 'spin', 'chain'
 const RIM_N = 18;   // rock face hanging down from the wall above
 const RIM_S = 16;
 const RIM_W = 16;
+
+/** How long you must hold the descent marker, and how close you must stand. */
+export const DESCENT_TIME = 10;
+const DESCENT_RADIUS = 44;
 
 /** Traps within this distance of a player become visible. */
 const TRAP_REVEAL_RANGE = 132;
@@ -87,7 +91,8 @@ export class World {
     this.listener = null;
     this.animCheck = null;
 
-    this.stairsUnlocked = false;
+    /** Descent channel state; see updateDescent(). */
+    this.descent = { playerId: null, progress: 0, flash: 0 };
     this.state = 'playing'; // playing | descending | victory | defeat
     this.partyGold = 0;
 
@@ -115,7 +120,7 @@ export class World {
     this.floaters = [];
     this.timers = [];
     this.byId = new Map();
-    this.stairsUnlocked = false;
+    this.descent = { playerId: null, progress: 0, flash: 0 };
     this.state = 'playing';
 
     const d = this.dungeon;
@@ -165,16 +170,25 @@ export class World {
 
     for (const dec of d.decor) {
       if (!dec.solid && !SOLID_DECOR.has(dec.kind)) continue;
-      const src = DECOR[dec.kind];
-      const w = src ? src[2] : 1;
-      const h = src ? src[3] : 1;
-      for (let oy = 0; oy < h; oy++) {
-        for (let ox = 0; ox < w; ox++) block(dec.x + ox, dec.y - (h - 1) + oy);
+      const pl = decorPlacement(dec.kind, dec.x, dec.y);
+      if (!pl) { block(dec.x, dec.y); continue; }
+      // Block every tile the sprite meaningfully covers. A sliver of overhang
+      // should not cost a whole tile, hence the coverage threshold.
+      const tx0 = Math.floor(pl.dx / TILE), tx1 = Math.floor((pl.dx + pl.sw - 1) / TILE);
+      const ty0 = Math.floor(pl.dy / TILE), ty1 = Math.floor((pl.dy + pl.sh - 1) / TILE);
+      for (let ty = ty0; ty <= ty1; ty++) {
+        for (let tx = tx0; tx <= tx1; tx++) {
+          const ox = Math.min(pl.dx + pl.sw, (tx + 1) * TILE) - Math.max(pl.dx, tx * TILE);
+          const oy = Math.min(pl.dy + pl.sh, (ty + 1) * TILE) - Math.max(pl.dy, ty * TILE);
+          if ((ox * oy) / (TILE * TILE) >= 0.4) block(tx, ty);
+        }
       }
     }
-    // You should have to stand next to a chest to open it, not on it.
+    // You should have to stand next to these to use them, not on top of them.
+    // `noBlock` is set by the generator on the rare prop that would otherwise
+    // seal a passage - see pruneBlockingProps().
     for (const prop of d.props) {
-      if (prop.type === 'chest' || prop.type === 'shrine') block(prop.x, prop.y);
+      if (BLOCKING_PROPS.has(prop.type) && !prop.noBlock) block(prop.x, prop.y);
     }
   }
 
@@ -315,7 +329,7 @@ export class World {
       this.updateZones(dt);
       this.updateTelegraphs(dt);
       this.updateTraps(dt);
-      this.checkBossRoom();
+      this.updateDescent(dt, intents);
     } else {
       for (const m of this.monsters) advanceAnim(m, dt);
       this.interpolateNet(dt);
@@ -1118,6 +1132,7 @@ export class World {
     }
     if (target.kind === 'player') {
       target.stat.damageTaken += dmg;
+      target.lastDamageTime = this.time;
       this.sfxAt(target.x, target.y, 'playerHurt');
       if (target.animLock <= 0) setAnim(target, 'hurt', { loop: false, fps: 14, lock: 0.2 });
       this.shake(2.5);
@@ -1584,50 +1599,66 @@ export class World {
         return true;
       }
       case 'stairs': {
-        if (!this.stairsUnlocked) {
-          this.floatText(p.x, p.y - 40, 'Sealed - clear the chamber', '#ff8080');
-          return false;
-        }
-        bus.emit('ui:descend', { player: p, world: this });
-        return true;
+        this.floatText(p.x, p.y - 40, 'Stand still on the marker', '#8fe0ff');
+        return false;
       }
       default:
         return false;
     }
   }
 
-  /** Live monsters still holding the stairs. Also the HUD's counter. */
+  /** Live monsters still in the boss chamber. Informational only now. */
   bossRoomGuards() {
     const id = this.dungeon.bossRoom;
     return this.monsters.filter((m) => !m.dead && m.roomId === id);
   }
 
-  checkBossRoom() {
-    if (this.stairsUnlocked) return;
-    const guards = this.bossRoomGuards();
+  /**
+   * The descent ritual.
+   *
+   * Standing on the stairway marker for ten uninterrupted seconds opens the way
+   * down. Taking a hit or swinging at anything resets it, so the chamber still
+   * has to be cleared - but the gate is a thing the player does, not a monster
+   * counter that can get stuck on an unreachable straggler.
+   */
+  updateDescent(dt, intents) {
+    const d = this.descent;
+    const stairs = this.dungeon.props.find((p) => p.type === 'stairs');
+    if (!stairs) return;
+    const c = this.dungeon.tileCenter(stairs.x, stairs.y);
 
-    // Safety net: a guard that has ended up somewhere a player can never reach
-    // would seal the floor permanently. Every so often, put any stranded one
-    // back in the chamber rather than trusting that it cannot happen.
-    this.guardAudit = (this.guardAudit || 0) - 1;
-    if (this.guardAudit <= 0) {
-      this.guardAudit = 120;
-      const room = this.dungeon.rooms[this.dungeon.bossRoom];
-      for (const m of guards) {
-        if (this.canStep(m, m.x, m.y) && this.flow.sample(m.x, m.y) !== null) continue;
-        const spot = this.findStandableSpot(m.x, m.y, m, 10)
-          || (room && room.tiles.length ? this.dungeon.tileCenter(...this.rng.pick(room.tiles)) : null);
-        if (spot) { m.x = spot.x; m.y = spot.y; m.vx = 0; m.vy = 0; }
+    if (d.flash > 0) d.flash -= dt;
+
+    const onPad = this.players.find((p) => !p.dead && !p.downed
+      && dist2(p.x, p.y, c.x, c.y) < DESCENT_RADIUS * DESCENT_RADIUS);
+
+    if (!onPad) {
+      if (d.progress > 0.5) this.pushLog('You stepped off the marker.', '#ff9060');
+      d.progress = 0;
+      d.playerId = null;
+      return;
+    }
+    if (d.playerId !== onPad.id) { d.playerId = onPad.id; d.progress = 0; }
+
+    const intent = intents?.get(onPad.id);
+    const acted = !!intent && (intent.attack || intent.slots?.some(Boolean));
+    const hurt = this.time - (onPad.lastDamageTime ?? -99) < 0.35;
+    if (acted || hurt) {
+      if (d.progress > 0.4) {
+        this.pushLog(hurt ? 'The ritual is broken - you were struck!' : 'The ritual is broken - you attacked.', '#ff6b6b');
+        this.sfxAt(c.x, c.y, 'error');
+        d.flash = 0.7;
       }
+      d.progress = 0;
+      return;
     }
 
-    if (guards.length) return;
-    this.stairsUnlocked = true;
-    const stairs = this.dungeon.props.find((pr) => pr.type === 'stairs');
-    if (stairs) stairs.locked = false;
-    this.pushLog('The stairway seal breaks. Descend when ready.', '#8fe0ff');
-    this.sfx('unlock');
-    this.emitEvent({ t: 'unlock' });
+    d.progress += dt;
+    if (d.progress >= DESCENT_TIME) {
+      d.progress = 0;
+      d.playerId = null;
+      bus.emit('descend:ready', { world: this, player: onPad });
+    }
   }
 
   // -------------------------------------------------------------------------

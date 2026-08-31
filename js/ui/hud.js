@@ -3,6 +3,7 @@ import { getAbility } from '../game/abilities.js';
 import { getClass } from '../game/classes.js';
 import { CONSUMABLES } from '../game/items.js';
 import { xpToNext, MAX_LEVEL } from '../game/stats.js';
+import { DESCENT_TIME } from '../game/world.js';
 import { clamp } from '../core/util.js';
 
 /**
@@ -196,15 +197,14 @@ export class Hud {
     $('#floorname').textContent = `Floor ${world.floorNo} / 10`;
     $('#floorsub').textContent = d.theme.name;
 
-    const remaining = world.bossRoomGuards ? world.bossRoomGuards().length
-      : world.monsters.filter((m) => !m.dead && m.roomId === d.bossRoom).length;
     const obj = $('#objective');
-    const sig = `${world.stairsUnlocked}|${remaining}`;
+    const prog = world.descent?.progress || 0;
+    const sig = prog > 0 ? `ch${prog.toFixed(1)}` : 'idle';
     if (obj.dataset.sig === sig) return;
     obj.dataset.sig = sig;
-    obj.innerHTML = world.stairsUnlocked
-      ? 'The stairway is <b>open</b>. Find the descent marker on the map and press <b>E</b>.'
-      : `The stairs are <b>sealed</b>. Clear the guarded chamber &mdash; <b>${remaining}</b> still stand.`;
+    obj.innerHTML = prog > 0
+      ? `Holding the descent marker &mdash; <b>${(DESCENT_TIME - prog).toFixed(1)}s</b> left. Do not attack or get hit.`
+      : 'Find the <b>descent marker</b> and stand on it for <b>10 seconds</b> without attacking or taking a hit.';
   }
 }
 

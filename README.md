@@ -41,7 +41,7 @@ entirely.
 | `Q` / `R` | Drink health / mana potion |
 | `E` | Open chests, talk to merchants, take the stairs |
 | `Shift` | Dash (brief invulnerability) |
-| `I` / `C` / `P` | Inventory / character sheet / spellbook |
+| `I` / `C` / `P` | Character inventory / run stats / spellbook |
 | `M` | Full floor map |
 | `Space` | While downed: switch which ally you are watching |
 | `Esc` | Options, or close the open panel |
@@ -55,9 +55,10 @@ pick it up. That is how the party trades gear.
 ## How a run works
 
 Ten floors, each larger and meaner than the last. Every floor has one **boss chamber**
-holding the stairway; the stairs stay sealed until everything in that room is dead.
-Descending is one-way and acts as the checkpoint — the party is restored to their feet
-on arrival.
+holding the stairway. To go down, stand on the descent marker for **ten uninterrupted
+seconds** — take a hit or swing at anything and the ritual resets — so the chamber has
+to be cleared first. Descending is one-way and acts as the checkpoint: the party is
+restored to their feet on arrival.
 
 Scattered through each floor: chests, hidden traps, a merchant who buys and sells, a
 shrine that fully restores the party once, and a treasure vault. The minimap fills in
@@ -257,6 +258,17 @@ chamber, grant levels/gold/loot/tomes, and teleport to the stairs or the merchan
 
 It is host-only, and everything in it drives `world.debug` flags or calls the same
 verbs normal play uses - there is no separate "cheat" code path to keep in sync.
+
+### Generation invariants
+
+Two connectivity guarantees, both asserted rather than assumed:
+
+- `pruneDisconnected` keeps only the largest floor region, and the pit pass reverts any
+  chasm that would cut the floor in half.
+- `pruneBlockingProps` adds each solid prop one at a time and keeps it only if the
+  reachable set is unchanged. Boulders are up to three tiles wide and a torch lands in
+  a doorway often enough to matter; without this, either can seal a corridor and strand
+  the stairs. Verified at 100% reachability across every seed and floor tested.
 
 ### Debugging
 

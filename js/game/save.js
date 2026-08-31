@@ -59,7 +59,6 @@ export function saveWorld(world) {
       floorNo: world.floorNo,
       runTime: world.runTime,
       itemUid: peekItemUid(),
-      stairsUnlocked: world.stairsUnlocked,
       players: world.players.map(serialisePlayer),
       monsters: world.monsters.filter((m) => !m.expired).map(serialiseMonster),
       props: world.dungeon.props.map((p, i) => ({
@@ -68,7 +67,8 @@ export function saveWorld(world) {
         used: p.used || false,
         armed: p.armed !== false,
         hidden: p.hidden || false,
-        locked: p.locked || false,
+        seen: p.seen || false,
+        spent: p.spent || false,
       })),
       pickups: world.pickups.map((p) => ({ x: p.x, y: p.y, items: p.items })),
       explored: encodeBits(world.explored),
@@ -193,10 +193,8 @@ export function loadIntoWorld(World, { bossForFloor } = {}) {
     if (!prop) return;
     if ('opened' in sp) prop.opened = sp.opened;
     if ('used' in sp) prop.used = sp.used;
-    if (prop.type === 'trap') { prop.armed = sp.armed; prop.hidden = sp.hidden; }
-    if (prop.type === 'stairs') prop.locked = sp.locked;
+    if (prop.type === 'trap') { prop.armed = sp.armed; prop.hidden = sp.hidden; prop.seen = sp.seen; prop.spent = sp.spent; }
   });
-  world.stairsUnlocked = !!data.stairsUnlocked;
 
   for (const pk of data.pickups || []) {
     world.pickups.push({ id: Math.random() * 1e9 | 0, kind: 'loot', x: pk.x, y: pk.y, items: pk.items, bob: 0, age: 0, dead: false });

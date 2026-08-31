@@ -18,6 +18,14 @@ export const PRIMARY_LABEL = {
   vit: 'Vitality',
 };
 
+/** Icon-sheet cell per attribute, so the character sheet reads at a glance. */
+export const PRIMARY_ICON = {
+  str: [11, 12],   // axe
+  dex: [8, 16],    // bow
+  int: [18, 23],   // tome
+  vit: [29, 24],   // heart
+};
+
 export const PRIMARY_BLURB = {
   str: 'Melee damage and carrying weight.',
   dex: 'Ranged damage, crit chance and attack speed.',

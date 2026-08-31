@@ -376,7 +376,7 @@ function resumeSavedRun() {
 
 function doDescend() {
   const world = game.world;
-  if (!world || !world.stairsUnlocked) return;
+  if (!world) return;
 
   for (const p of world.players) p.stat.floorsCleared++;
 
@@ -572,7 +572,7 @@ function bindHotkeys() {
     if (game.mode !== 'playing') return;
 
     if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); game.panels.toggleInventory('inv'); }
-    else if (e.code === 'KeyC') game.panels.toggleInventory('char');
+    else if (e.code === 'KeyC') game.panels.toggleInventory('stats');
     else if (e.code === 'KeyP') game.panels.toggleInventory('spells');
     else if (e.code === 'KeyM') toggleMap(!isScreenOpen('screen-map'));
     else if (e.code === 'Space' && game.localPlayer?.downed) cycleSpectate();
@@ -617,8 +617,8 @@ function bindDevConsole() {
   const p = () => game.localPlayer;
   const w = () => game.world;
   const actions = {
-    'dev-descend': () => { w().stairsUnlocked = true; doDescend(); },
-    'dev-unlock': () => { w().stairsUnlocked = true; toast('Stairs unlocked'); },
+    'dev-descend': () => doDescend(),
+    'dev-unlock': () => { w().descent.progress = 9.4; toast('Ritual almost complete'); },
     // Killing a slime spawns two more, so sweep until nothing is left rather
     // than making the tester click the button four times.
     'dev-killroom': () => {
@@ -627,7 +627,6 @@ function bindDevConsole() {
         if (!guards.length) break;
         for (const m of guards) w().handleDeath(m, p());
       }
-      w().checkBossRoom();
       toast('Boss chamber cleared');
     },
     'dev-killall': () => {
@@ -636,7 +635,6 @@ function bindDevConsole() {
         if (!alive.length) break;
         for (const m of alive) w().handleDeath(m, p());
       }
-      w().checkBossRoom();
       toast('Floor cleared');
     },
     'dev-level': () => { for (let i = 0; i < 5; i++) w().giveXp(p(), xpToNext(p().level)); },
@@ -712,7 +710,7 @@ function updateDevInfo() {
   if (!world || !p) { $('#dev-info').textContent = 'No run in progress.'; return; }
   $('#dev-info').innerHTML = [
     `floor <b>${world.floorNo}</b> (${world.dungeon.theme.name}) &middot; seed <b>${world.seed}</b>`,
-    `monsters alive <b>${world.monsterCount()}</b> &middot; guarding stairs <b>${world.bossRoomGuards().length}</b> &middot; stairs <b>${world.stairsUnlocked ? 'open' : 'sealed'}</b>`,
+    `monsters alive <b>${world.monsterCount()}</b> &middot; in boss chamber <b>${world.bossRoomGuards().length}</b> &middot; ritual <b>${world.descent.progress.toFixed(1)}s</b>`,
     `${p.name}: level <b>${p.level}</b>, ${Math.round(p.hp)}/${Math.round(p.stats.maxHp)} hp, <b>${p.gold}</b>g, bag ${p.inventory.length}/${INVENTORY_SIZE}`,
     `rooms <b>${world.dungeon.rooms.length}</b> &middot; props <b>${world.dungeon.props.length}</b> &middot; pickups <b>${world.pickups.length}</b>`,
   ].join('<br>');
@@ -786,17 +784,10 @@ function bindGameEvents() {
     if (npc) game.panels.openShop(npc);
   });
 
-  bus.on('ui:descend', ({ player }) => {
-    if (player !== game.localPlayer) return;
-    const list = $('#descend-party');
-    list.innerHTML = '';
-    for (const p of game.world.players) {
-      const row = el('div', 'descend-row');
-      row.appendChild(el('span', null, `${p.name} - ${getClass(p.classId).name} ${p.level}`));
-      row.appendChild(el('span', p.downed ? 'dim' : '', p.downed ? 'fallen (will be raised)' : `${Math.ceil(p.hp)} hp`));
-      list.appendChild(row);
-    }
-    showScreen('screen-descend', { exclusive: false });
+  // Completing the ten-second ritual is the descent trigger; there is no
+  // confirmation prompt, because holding the marker that long already is one.
+  bus.on('descend:ready', () => {
+    if (net.isHost || !game.isOnline) doDescend();
   });
 
   bus.on('game:over', () => {
@@ -974,7 +965,6 @@ function applyRemoteEvent(world, e) {
       world.shake(e.a);
       break;
     case 'unlock':
-      world.stairsUnlocked = true;
       break;
     case 'chest': {
       const prop = world.dungeon.props.find((p) => p.type === 'chest' && p.x === e.x && p.y === e.y);
@@ -1102,8 +1092,6 @@ function clientInteractUi(world, player) {
   if (prop.type === 'merchant') {
     const npc = world.npcs.find((n) => n.id === prop.npcId);
     if (npc) game.panels.openShop(npc);
-  } else if (prop.type === 'stairs' && world.stairsUnlocked) {
-    bus.emit('ui:descend', { player, world });
   }
 }
 

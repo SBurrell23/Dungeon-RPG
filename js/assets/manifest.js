@@ -219,29 +219,53 @@ export const RIM = {
 /** Colour of the tileset's own pit interior - used as the void clear colour. */
 export const VOID_COLOR = '#191210';
 
-/** Static decorations as [col, row, wTiles, hTiles] into RA_Cavern. */
+/**
+ * Static decorations, as pixel rects `[x, y, w, h]` into RA_Cavern.
+ *
+ * Pixel rects rather than tile coords because the pack does not align its props
+ * to the 48px grid - authoring these as whole tiles sliced the edges off half
+ * the rocks. Every rect below was measured from the sheet by finding the empty
+ * gutters around each sprite, so nothing is clipped and nothing bleeds in from
+ * its neighbour. Props are drawn anchored bottom-centre on their tile.
+ */
 export const DECOR = {
-  pebblesA: [16, 0, 1, 1], pebblesB: [17, 0, 1, 1], pebblesC: [18, 0, 1, 1],
-  gravelA: [16, 1, 1, 1], gravelB: [17, 1, 1, 1], gravelC: [18, 1, 1, 1],
-  rockA: [16, 3, 1, 1], rockB: [17, 3, 1, 1], rockC: [18, 3, 1, 1], rockD: [19, 3, 1, 1],
-  rockE: [16, 4, 1, 1], rockF: [17, 4, 1, 1], rockG: [18, 4, 1, 1], rockH: [19, 4, 1, 1],
-  boulderA: [21, 4, 2, 2], boulderB: [23, 4, 2, 2], boulderC: [25, 4, 2, 2], boulderD: [27, 4, 2, 2],
-  boulderE: [21, 6, 2, 2], boulderF: [23, 6, 2, 2], boulderG: [25, 6, 2, 2], boulderH: [27, 6, 2, 2],
-  spireA: [16, 6, 2, 2], spireB: [18, 6, 2, 2],
-  grassA: [12, 9, 1, 1], grassB: [13, 9, 1, 1], grassC: [14, 9, 1, 1], grassD: [15, 9, 1, 1],
-  grassE: [12, 10, 1, 1], grassF: [13, 10, 1, 1], grassG: [14, 10, 1, 1],
-  mushRedA: [5, 28, 1, 1], mushRedB: [6, 28, 1, 1], mushRedC: [7, 28, 1, 1],
-  mushGreenA: [5, 29, 1, 1], mushGreenB: [6, 29, 1, 1], mushGreenC: [7, 29, 1, 1],
-  mushPinkA: [5, 30, 1, 1], mushPinkB: [6, 30, 1, 1], mushPinkC: [7, 30, 1, 1],
-  crateA: [7, 24, 1, 2], crateB: [8, 25, 1, 1], crateC: [9, 24, 1, 2], crateD: [11, 24, 1, 2],
-  crateStackA: [12, 24, 2, 2], crateStackB: [14, 24, 2, 2],
-  barrelA: [27, 16, 1, 2], barrelB: [28, 16, 1, 2], barrelC: [29, 16, 1, 2],
-  potA: [16, 18, 1, 2], potB: [17, 18, 1, 2], potC: [18, 18, 1, 2], potD: [19, 18, 1, 2],
-  sackA: [20, 18, 1, 2], sackB: [21, 18, 1, 2],
-  pillar: [26, 16, 1, 2],
-  altar: [22, 16, 1, 2],
-  slab: [16, 16, 1, 1], slabCross: [17, 16, 1, 1], slabQuad: [18, 16, 1, 1],
-  poolWater: [25, 0, 2, 2], poolDark: [21, 0, 2, 2], poolLava: [27, 0, 2, 2],
+  // Flat scatter - walkable.
+  pebblesA: [783, 15, 15, 15], pebblesB: [825, 12, 27, 24], pebblesC: [873, 12, 24, 21],
+  gravelA: [771, 51, 42, 42], gravelB: [819, 51, 42, 39], gravelC: [864, 51, 45, 42],
+  rockFieldA: [816, 147, 192, 45], rockFieldB: [816, 195, 192, 45],
+
+  // Small rocks that sit against a wall.
+  rockA: [774, 153, 36, 33], rockB: [774, 201, 36, 33],
+
+  // Boulders - solid.
+  boulderA: [960, 195, 141, 93], boulderB: [1107, 201, 141, 87],
+  boulderC: [1251, 195, 90, 90], boulderD: [1344, 210, 96, 75],
+  boulderE: [1011, 297, 90, 81], boulderF: [1107, 297, 90, 81],
+  boulderG: [1200, 297, 48, 87], boulderH: [1251, 291, 90, 90],
+  boulderI: [1344, 306, 96, 78],
+
+  // Flora.
+  grassA: [588, 447, 21, 15], grassB: [636, 447, 24, 15], grassC: [678, 441, 39, 33],
+  grassD: [588, 495, 27, 21], grassE: [630, 483, 39, 42], grassF: [678, 483, 36, 39],
+  grassG: [723, 483, 42, 42],
+  mushRedA: [255, 1359, 18, 24], mushRedB: [291, 1350, 42, 42],
+  mushGreenA: [255, 1407, 18, 24], mushGreenB: [291, 1398, 42, 42],
+  mushPinkA: [255, 1455, 18, 24], mushPinkB: [291, 1446, 42, 42],
+
+  // Containers and furniture - solid.
+  crateA: [342, 1254, 36, 84], crateB: [390, 1290, 36, 48], crateC: [438, 1275, 36, 63],
+  crateD: [486, 1290, 36, 48], crateE: [534, 1275, 36, 63],
+  crateStackA: [588, 1290, 72, 48], crateStackB: [684, 1290, 72, 48],
+  crateTall: [768, 1248, 48, 96],
+  pillar: [1200, 768, 48, 96],
+  barrelA: [1251, 771, 42, 90], barrelB: [1299, 792, 42, 69],
+  barrelC: [1347, 792, 42, 69], barrelD: [1395, 768, 90, 93],
+  potA: [723, 867, 42, 42], potB: [873, 870, 30, 84], potC: [912, 882, 48, 78],
+  sackA: [963, 867, 42, 90], sackB: [1011, 888, 42, 69],
+  altar: [768, 864, 96, 96], pedestal: [1056, 864, 48, 96],
+
+  // Decorative pools.
+  poolDark: [1014, 6, 84, 84], poolWater: [1206, 6, 84, 84], poolLava: [1302, 6, 84, 84],
 };
 
 /**
@@ -252,13 +276,30 @@ export const DECOR = {
  * mushrooms, gravel) stays walkable.
  */
 export const SOLID_DECOR = new Set([
-  'boulderA', 'boulderB', 'boulderC', 'boulderD', 'boulderE', 'boulderF', 'boulderG', 'boulderH',
-  'spireA', 'spireB', 'pillar', 'altar',
-  'crateA', 'crateB', 'crateC', 'crateD', 'crateStackA', 'crateStackB',
-  'barrelA', 'barrelB', 'barrelC',
-  'potA', 'potB', 'potC', 'potD', 'sackA', 'sackB',
-  'rockE', 'rockF', 'rockG', 'rockH',
+  'boulderA', 'boulderB', 'boulderC', 'boulderD', 'boulderE',
+  'boulderF', 'boulderG', 'boulderH', 'boulderI',
+  'pillar', 'altar', 'pedestal',
+  'crateA', 'crateB', 'crateC', 'crateD', 'crateE',
+  'crateStackA', 'crateStackB', 'crateTall',
+  'barrelA', 'barrelB', 'barrelC', 'barrelD',
+  'potA', 'potB', 'potC', 'sackA', 'sackB',
 ]);
+
+/**
+ * Where a decor sprite lands in the world, anchored bottom-centre on its tile.
+ * Renderer and collision both go through this so they can never disagree.
+ * @returns {{sx:number, sy:number, sw:number, sh:number, dx:number, dy:number}}
+ */
+export function decorPlacement(kind, tileX, tileY) {
+  const r = DECOR[kind];
+  if (!r) return null;
+  const [sx, sy, sw, sh] = r;
+  return {
+    sx, sy, sw, sh,
+    dx: Math.round(tileX * TILE + (TILE - sw) / 2),
+    dy: Math.round(tileY * TILE + TILE - sh),
+  };
+}
 
 /** Chest sprites, cavern sheet tile coords. */
 export const CHEST = {

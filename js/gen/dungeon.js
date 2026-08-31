@@ -1,5 +1,5 @@
 import { RNG } from '../core/rng.js';
-import { TILE } from '../assets/manifest.js';
+import { TILE, SOLID_DECOR, decorPlacement } from '../assets/manifest.js';
 
 export const VOID = 0;
 export const FLOOR = 1;
@@ -125,10 +125,107 @@ export function generateFloor(seed, floorNo, partySize = 1) {
   assignRoles(rng, d, floorNo);
   paintVariants(rng, d);
   decorate(rng, d, floorNo);
+  pruneBlockingProps(d);
   populate(rng, d, floorNo, partySize);
 
   return d;
 }
+
+/**
+ * Remove any solid prop that walls off part of the floor.
+ *
+ * Boulders can be three tiles wide, and a torch sits in a doorway often enough
+ * to matter - either can seal a corridor and strand the stairs. Rather than
+ * hoping placement never does that, each solid prop is added one at a time and
+ * kept only if the reachable set is unchanged. Connectivity is then a proven
+ * property of the generated floor rather than an assumption about it.
+ */
+function pruneBlockingProps(d) {
+  const size = d.w * d.h;
+  const blocked = new Uint8Array(size);
+  for (let i = 0; i < size; i++) blocked[i] = d.tiles[i] ? 0 : 1;
+
+  const start = d.idx(d.entrance.x, d.entrance.y);
+  const seen = new Uint8Array(size);
+  const stack = new Int32Array(size);
+
+  /** Flood fill over unblocked floor from the entrance; returns tiles reached. */
+  const reach = () => {
+    seen.fill(0);
+    if (blocked[start]) return 0;
+    let top = 0, count = 0;
+    stack[top++] = start;
+    seen[start] = 1;
+    while (top > 0) {
+      const p = stack[--top];
+      count++;
+      const x = p % d.w, y = (p / d.w) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= d.w || ny >= d.h) continue;
+        const ni = ny * d.w + nx;
+        if (blocked[ni] || seen[ni]) continue;
+        seen[ni] = 1;
+        stack[top++] = ni;
+      }
+    }
+    return count;
+  };
+
+  const baseline = reach();
+
+  /** Tiles a prop would occupy, using the same placement the renderer uses. */
+  const footprint = (kind, tx, ty) => {
+    const pl = decorPlacement(kind, tx, ty);
+    if (!pl) return [d.idx(tx, ty)];
+    const out = [];
+    const tx0 = Math.floor(pl.dx / TILE), tx1 = Math.floor((pl.dx + pl.sw - 1) / TILE);
+    const ty0 = Math.floor(pl.dy / TILE), ty1 = Math.floor((pl.dy + pl.sh - 1) / TILE);
+    for (let y = ty0; y <= ty1; y++) {
+      for (let x = tx0; x <= tx1; x++) {
+        if (!d.inBounds(x, y)) continue;
+        const ox = Math.min(pl.dx + pl.sw, (x + 1) * TILE) - Math.max(pl.dx, x * TILE);
+        const oy = Math.min(pl.dy + pl.sh, (y + 1) * TILE) - Math.max(pl.dy, y * TILE);
+        if ((ox * oy) / (TILE * TILE) >= 0.4) out.push(d.idx(x, y));
+      }
+    }
+    return out;
+  };
+
+  const keptDecor = [];
+  for (const dec of d.decor) {
+    if (!SOLID_DECOR.has(dec.kind)) { keptDecor.push(dec); continue; }
+    const tiles = footprint(dec.kind, dec.x, dec.y).filter((i) => !blocked[i]);
+    if (!tiles.length) { keptDecor.push(dec); continue; }
+    for (const i of tiles) blocked[i] = 1;
+    if (reach() === baseline) {
+      keptDecor.push(dec);
+    } else {
+      for (const i of tiles) blocked[i] = 0;
+    }
+  }
+  d.decor = keptDecor;
+
+  const keptProps = [];
+  for (const prop of d.props) {
+    if (!BLOCKING_PROPS.has(prop.type)) { keptProps.push(prop); continue; }
+    const i = d.idx(prop.x, prop.y);
+    if (blocked[i]) { keptProps.push(prop); continue; }
+    blocked[i] = 1;
+    if (reach() === baseline) {
+      keptProps.push(prop);
+    } else {
+      blocked[i] = 0;
+      // A torch that would seal a doorway is simply not placed; a chest that
+      // would is moved out of the blocking set rather than lost.
+      if (prop.type !== 'torch') { prop.noBlock = true; keptProps.push(prop); }
+    }
+  }
+  d.props = keptProps;
+}
+
+/** Prop types that occupy their tile. Mirrored by World.rebuildBlocked(). */
+export const BLOCKING_PROPS = new Set(['chest', 'shrine', 'torch']);
 
 // ---------------------------------------------------------------------------
 // 1. BSP partition
@@ -760,12 +857,15 @@ function paintVariants(rng, d) {
 // 7. Props and decoration
 // ---------------------------------------------------------------------------
 
-const WALL_PROPS = ['rockA', 'rockB', 'rockC', 'rockD', 'rockE', 'rockF', 'rockG', 'rockH'];
-const GROUND_SCATTER = ['pebblesA', 'pebblesB', 'pebblesC', 'gravelA', 'gravelB', 'gravelC'];
+const WALL_PROPS = ['rockA', 'rockB'];
+const GROUND_SCATTER = ['pebblesA', 'pebblesB', 'pebblesC', 'gravelA', 'gravelB', 'gravelC',
+  'rockFieldA', 'rockFieldB'];
 const FLORA = ['grassA', 'grassB', 'grassC', 'grassD', 'grassE', 'grassF', 'grassG',
   'mushRedA', 'mushRedB', 'mushGreenA', 'mushGreenB', 'mushPinkA', 'mushPinkB'];
-const BIG_PROPS = ['boulderA', 'boulderB', 'boulderC', 'boulderD', 'boulderE', 'boulderF', 'spireA', 'spireB'];
-const CONTAINERS = ['crateA', 'crateB', 'crateC', 'crateD', 'barrelA', 'barrelB', 'barrelC', 'potA', 'potB', 'potC', 'sackA', 'sackB'];
+const BIG_PROPS = ['boulderA', 'boulderB', 'boulderC', 'boulderD', 'boulderE',
+  'boulderF', 'boulderG', 'boulderH', 'boulderI'];
+const CONTAINERS = ['crateA', 'crateB', 'crateC', 'crateD', 'crateE', 'crateStackA', 'crateStackB',
+  'crateTall', 'barrelA', 'barrelB', 'barrelC', 'barrelD', 'potA', 'potB', 'potC', 'sackA', 'sackB'];
 
 function decorate(rng, d, floorNo) {
   const occupied = new Set();
@@ -784,6 +884,25 @@ function decorate(rng, d, floorNo) {
   const addDecor = (kind, x, y, solid = false) => {
     d.decor.push({ kind, x, y, solid });
     take(x, y);
+  };
+
+  /**
+   * A tile with open floor on all four sides. Chests and shrines have to go
+   * here: the rock rim bleeds over the edge of any tile that touches a wall,
+   * which would bury them in the wall art.
+   */
+  const interiorFree = (x, y) => freeTile(x, y)
+    && d.isFloor(x - 1, y) && d.isFloor(x + 1, y)
+    && d.isFloor(x, y - 1) && d.isFloor(x, y + 1)
+    && d.isFloor(x - 1, y - 1) && d.isFloor(x + 1, y - 1);
+
+  /** Pick the first interior tile from a shuffled candidate list. */
+  const takeInterior = (list) => {
+    for (let i = 0; i < list.length; i++) {
+      const [x, y] = list[i];
+      if (interiorFree(x, y)) { list.splice(i, 1); return [x, y]; }
+    }
+    return null;
   };
 
   // Wall-hugging rocks: only where the tile north of us is rock, so the prop
@@ -867,14 +986,14 @@ function decorate(rng, d, floorNo) {
       case ROOM_KIND.VAULT: {
         const chests = rng.int(2, 3);
         for (let i = 0; i < chests; i++) {
-          const s = nextSpot();
+          const s = takeInterior(spots);
           if (s) { d.props.push({ type: 'chest', tier: 'rare', x: s[0], y: s[1], opened: false }); take(s[0], s[1]); }
         }
         break;
       }
       case ROOM_KIND.SHRINE: {
-        d.props.push({ type: 'shrine', x: room.cx, y: room.cy, used: false });
-        take(room.cx, room.cy);
+        const s = interiorFree(room.cx, room.cy) ? [room.cx, room.cy] : takeInterior(spots);
+        if (s) { d.props.push({ type: 'shrine', x: s[0], y: s[1], used: false }); take(s[0], s[1]); }
         break;
       }
       default: break;
@@ -884,7 +1003,7 @@ function decorate(rng, d, floorNo) {
     const chestChance = 0.20 + room.depth * 0.05;
     if (room.kind === ROOM_KIND.NORMAL || room.kind === ROOM_KIND.TRAPPED) {
       if (rng.bool(Math.min(0.6, chestChance))) {
-        const s = nextSpot();
+        const s = takeInterior(spots);
         if (s) { d.props.push({ type: 'chest', tier: 'common', x: s[0], y: s[1], opened: false }); take(s[0], s[1]); }
       }
     }
@@ -893,7 +1012,7 @@ function decorate(rng, d, floorNo) {
   // The boss room gets a guaranteed reward chest next to the stairs.
   const bossRoom = d.rooms[d.bossRoom];
   if (bossRoom) {
-    const spot = bossRoom.tiles.find(([x, y]) => freeTile(x, y) && Math.hypot(x - d.stairs.x, y - d.stairs.y) > 2);
+    const spot = bossRoom.tiles.find(([x, y]) => interiorFree(x, y) && Math.hypot(x - d.stairs.x, y - d.stairs.y) > 2);
     if (spot) {
       d.props.push({ type: 'chest', tier: 'boss', x: spot[0], y: spot[1], opened: false });
       take(spot[0], spot[1]);

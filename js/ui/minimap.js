@@ -1,6 +1,9 @@
 import { TILE } from '../assets/manifest.js';
 import { clamp } from '../core/util.js';
 
+/** Monsters within this many pixels of a player show on the map (~2 rooms). */
+const MONSTER_DOT_RANGE = 760;
+
 /**
  * Fog-of-war minimap.
  *
@@ -150,7 +153,7 @@ export class Minimap {
       else if (prop.type === 'stairs') {
         const p = project(prop.x + 0.5, prop.y + 0.5);
         ctx.save();
-        ctx.fillStyle = world.stairsUnlocked ? '#7fe6ff' : '#a05050';
+        ctx.fillStyle = '#7fe6ff';
         ctx.beginPath();
         ctx.moveTo(p.x, p.y - 5);
         ctx.lineTo(p.x + 5, p.y + 4);
@@ -161,33 +164,14 @@ export class Minimap {
       }
     }
 
-    // Only monsters on explored ground, so the map is not an x-ray. The one
-    // exception is whatever is still holding the stairs shut: the floor is
-    // unfinishable until it dies, so it is always findable.
-    const guards = world.stairsUnlocked ? null : new Set(world.bossRoomGuards?.().map((m) => m.id));
+    // Monsters show only on explored ground and only within a couple of rooms
+    // of somebody, so the map stays a map rather than an x-ray of the floor.
     for (const m of world.monsters) {
       if (m.dead) continue;
       const tx = Math.floor(m.x / TILE), ty = Math.floor(m.y / TILE);
-      if (!d.inBounds(tx, ty)) continue;
-      const isGuard = guards?.has(m.id);
-      if (!isGuard) {
-        if (!explored[d.idx(tx, ty)]) continue;
-        if (!m.boss && !this.nearAnyPlayer(m, 620)) continue;
-      }
-      const color = m.boss ? '#ff4fd8' : isGuard ? '#ff7043' : m.elite ? '#ff9a2e' : '#d05050';
-      dot(tx, ty, color, m.boss ? 3.5 : isGuard ? 2.6 : 1.6);
-      if (isGuard && !m.boss) {
-        // Ring it so a single straggler stands out from ordinary red dots.
-        const proj = project(tx + 0.5, ty + 0.5);
-        ctx.save();
-        ctx.strokeStyle = '#ff7043';
-        ctx.globalAlpha = 0.55 + 0.45 * Math.sin(Date.now() / 200);
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.arc(proj.x, proj.y, 6, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      }
+      if (!d.inBounds(tx, ty) || !explored[d.idx(tx, ty)]) continue;
+      if (!this.nearAnyPlayer(m, MONSTER_DOT_RANGE)) continue;
+      dot(tx, ty, m.boss ? '#ff4fd8' : m.elite ? '#ff9a2e' : '#d05050', m.boss ? 3.5 : 1.6);
     }
 
     for (const p of world.players) {
