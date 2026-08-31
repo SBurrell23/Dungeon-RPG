@@ -1,7 +1,7 @@
 # Dungeon RPG
 
 A vanilla-JS, peer-to-peer top-down dungeon crawler. One to four players pick from
-seven classes and descend ten procedurally generated floors. There is no way back up.
+six classes and descend ten procedurally generated floors. There is no way back up.
 
 No build step, no framework, no bundler — ES modules and a canvas.
 
@@ -102,7 +102,7 @@ js/
 
   game/
     stats.js          stat model, damage/mitigation, level and monster curves
-    classes.js        the seven classes
+    classes.js        the six playable classes
     abilities.js      ability registry (basic attacks, class skills, tomes)
     items.js          equipment rolling, affixes, consumables, loot tables
     monsters.js       bestiary and bosses
@@ -155,6 +155,11 @@ with loops, which is what stops a floor feeling like a branching maze. Room *sha
 Entrance and boss rooms are placed at the two ends of the room graph's diameter, so
 every floor demands a real traversal.
 
+Leaves are kept small and roughly constant with depth, so a floor is many modest
+chambers joined by short halls rather than a handful of large open ones - deeper
+floors get *more* rooms, not bigger ones. A minority of rooms fill their whole leaf,
+which keeps the occasional hall worth walking into.
+
 After carving there are three cleanup passes — smoothing, largest-region pruning, and
 a pit pass that reverts any chasm which would cut the floor in half. `generateFloor`
 has been run across hundreds of seeds with a full connectivity assertion.
@@ -173,7 +178,10 @@ Its south edge is deliberately taller: in the source art that edge is the lit fr
 face of the rock, and it is what gives the caverns their sense of depth.
 
 Terrain is baked into 576px chunks on demand and evicted LRU, so scrolling costs one
-bake per newly-visible chunk and nothing after that.
+bake per newly-visible chunk and nothing after that. Each chunk is finished with a
+per-floor tint multiplied over it - near-white colours that shift the cast of a floor
+without recolouring the art, which is what makes the tenth floor feel unlike the
+first using one tileset.
 
 ### Smooth movement
 
