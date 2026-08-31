@@ -342,12 +342,17 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 
 /* ===================== Item grids and tooltips ===================== */
 
-/* auto-fit + minmax lets the row stretch to the panel width, so there is no
-   dead margin down the right-hand side of the bag. */
+/* auto-FILL, not auto-fit: auto-fit collapses the empty tracks and redistributes
+   their width to the filled ones, which made cells balloon when a pane held only
+   a few items. auto-fill keeps every track, so a cell is the same size whether
+   the pane holds one item or fifty, and the row still spans the panel width. */
 .itemgrid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
   gap: 5px; align-content: start;
 }
+/* Empty-state notes ("Sold out.", "Nothing to sell.") are grid children too, so
+   without this they get squeezed into a single 44px track and wrap per word. */
+.itemgrid > *:not(.itemcell) { grid-column: 1 / -1; }
 .itemcell {
   position: relative; width: 100%; aspect-ratio: 1 / 1; min-width: 44px;
   background: rgba(0,0,0,.35); border: 1px solid var(--line); border-radius: 3px;
@@ -358,10 +363,14 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
 .itemcell .qty { position: absolute; bottom: 1px; right: 3px; font-size: 10px; color: var(--gold); text-shadow: 0 1px 2px #000; }
 .itemcell .price { position: absolute; bottom: -1px; left: 3px; font-size: 9px; color: var(--gold); text-shadow: 0 1px 2px #000; }
 .itemcell.empty { opacity: .3; cursor: default; }
-.itemcell.r-uncommon { border-color: #3d7a44; }
-.itemcell.r-rare { border-color: #33628f; }
-.itemcell.r-epic { border-color: #6a3d8f; }
-.itemcell.r-legendary { border-color: #9a5a1e; box-shadow: 0 0 10px rgba(255,154,46,.3) inset; }
+/* Equipped gear carries the same rarity colour as a bag item - what you are
+   wearing should be as readable at a glance as what you are carrying. */
+.itemcell.r-uncommon, .equipslot.r-uncommon { border-color: #3d7a44; }
+.itemcell.r-rare, .equipslot.r-rare { border-color: #33628f; }
+.itemcell.r-epic, .equipslot.r-epic { border-color: #6a3d8f; }
+.itemcell.r-legendary, .equipslot.r-legendary {
+  border-color: #9a5a1e; box-shadow: 0 0 10px rgba(255,154,46,.3) inset;
+}
 
 .tooltip {
   position: fixed; z-index: 200; pointer-events: none;
