@@ -45,10 +45,10 @@ entirely.
 | `M` | Full floor map |
 | `Space` | While downed: switch which ally you are watching |
 | `Esc` | Options and the full control list, or close the open panel |
-| `` ` `` | Dev console (testing tools) |
+| `Ctrl+Shift+~` | Dev console (testing tools, host only) |
 
-Right-click an item in your bag to **drop it on the ground**, where a teammate can
-pick it up. That is how the party trades gear.
+Right-click an item in your bag for its options - equip or use it, or **drop it on
+the ground**, where a teammate can pick it up. That is how the party trades gear.
 
 ---
 
@@ -269,7 +269,7 @@ or three tonally-close accents and an ambient light colour.
 
 ### Dev console
 
-Press `` ` `` (or Ctrl+Shift+D) mid-run for the testing panel: god mode, noclip,
+Press `Ctrl+Shift+~` mid-run for the testing panel: god mode, noclip,
 one-hit kills, 3x speed, reveal map, jump to any floor, unlock or clear the boss
 chamber, grant levels/gold/loot/tomes, and teleport to the stairs or the merchant.
 

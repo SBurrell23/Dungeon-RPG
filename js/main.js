@@ -581,7 +581,9 @@ function bindHotkeys() {
       if (game.mode === 'playing') openOptions();
       return;
     }
-    if (e.code === 'Backquote' || (e.code === 'KeyD' && e.ctrlKey && e.shiftKey)) {
+    // Ctrl+Shift+` only. A bare backquote opened it by accident, and it is
+    // meant to stay out of sight unless you go looking for it.
+    if (e.code === 'Backquote' && e.ctrlKey && e.shiftKey) {
       e.preventDefault();
       toggleDevConsole();
       return;
@@ -737,7 +739,7 @@ function updateDevInfo() {
 function toggleDevConsole() {
   if (isScreenOpen('screen-dev')) { hideScreen('screen-dev'); return; }
   if (game.mode !== 'playing') return;
-  if (game.isOnline && !net.isHost) { toast('Dev console is host-only'); return; }
+  if (game.isOnline && !net.isHost) return;   // host-only, and silent about it
   updateDevInfo();
   showScreen('screen-dev', { exclusive: false });
 }
