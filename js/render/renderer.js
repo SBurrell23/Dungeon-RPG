@@ -258,13 +258,21 @@ export class Renderer {
    * flat pixel blocks rather than the smooth gradients it had before.
    */
   drawTrap(ctx, p, px, py, world) {
-    const alpha = clamp(p.vis ?? 1, 0, 1) * (p.spent ? TRAP_OPACITY * 0.5 : TRAP_OPACITY);
-    if (alpha < 0.02) return;
     ctx.save();
+    if (p.kind === 'squisher') {
+      // Solid, and always drawn. A crusher is a machine bolted into the wall,
+      // not something concealed under the floor - fading it in as you approach
+      // made it look like a ghost of a trap rather than a ton of moving stone.
+      this.drawCrusher(ctx, p, px, py, world);
+      ctx.restore();
+      return;
+    }
+
+    const alpha = clamp(p.vis ?? 1, 0, 1) * (p.spent ? TRAP_OPACITY * 0.5 : TRAP_OPACITY);
+    if (alpha < 0.02) { ctx.restore(); return; }
     ctx.globalAlpha = alpha;
 
     if (p.kind === 'poison') this.drawGasVent(ctx, p, px, py);
-    else if (p.kind === 'squisher') this.drawCrusher(ctx, p, px, py, world);
     else this.drawTrapSheet(ctx, p, px, py, world);
 
     ctx.restore();
@@ -298,19 +306,17 @@ export class Renderer {
     const frame = world ? world.trapFrame(p) : 0;
     const span = p.span || 2;
 
+    // The art mounts at the top edge of its cell and drives out downward, so a
+    // cell laid on the first and last tiles of the corridor puts each mount
+    // flush with the wall it is bolted to and sends the ram into the hallway.
     for (const far of [false, true]) {
       ctx.save();
-      // Biased toward the corridor by a third of a tile: the wall art hangs
-      // down over its own tile, so a ram centred on the wall tile reads as
-      // floating behind it rather than driving out of it.
-      const BITE = TILE * 0.62;
       if (p.axis === 'v') {
-        // Rams above and below, the far one flipped to face back up.
-        const y = far ? py + span * TILE - BITE : py - TILE + BITE;
+        const y = py + (far ? (span - 1) * TILE : 0);
         ctx.translate(px + TILE / 2, y + TILE / 2);
-        if (far) ctx.scale(1, -1);
+        if (far) ctx.scale(1, -1);          // the far ram faces back up
       } else {
-        const x = far ? px + span * TILE - BITE : px - TILE + BITE;
+        const x = px + (far ? (span - 1) * TILE : 0);
         ctx.translate(x + TILE / 2, py + TILE / 2);
         if (far) ctx.scale(-1, 1);
       }
