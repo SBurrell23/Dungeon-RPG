@@ -1,12 +1,13 @@
 import {
   $, el, iconUrl, portraitUrl, bindTooltip, itemTooltip, rarityClass, itemLocked,
   escapeHtml, showScreen, hideScreen, isScreenOpen, hideTooltip, toast, openItemMenu, closeItemMenu,
+  promptNumber,
 } from './ui.js';
 import { SLOTS, SLOT_LABEL, SELL_RATE, BUY_MARKUP, INVENTORY_SIZE } from '../game/items.js';
 import { PRIMARIES, PRIMARY_LABEL, PRIMARY_BLURB, PRIMARY_ICON, xpToNext } from '../game/stats.js';
 import { getAbility, SCHOOLS } from '../game/abilities.js';
 import { getClass } from '../game/classes.js';
-import { MONSTERS, TRAP_INFO } from '../game/monsters.js';
+import { MONSTERS, TRAP_INFO, BOSSES } from '../game/monsters.js';
 import { TRAP_SHEETS } from '../assets/manifest.js';
 import { assets } from '../assets/loader.js';
 import { playSfx } from '../audio/sfx.js';
@@ -126,6 +127,10 @@ export class Panels {
     if (!this.player) return;
     // Rebuilding the grids orphans any open cell menu, so drop it first.
     closeItemMenu();
+    // The compendium is three grids of cards; it needs more width than the
+    // inventory does, so the panel widens for that tab alone.
+    document.querySelector('#screen-inventory .panel')
+      ?.classList.toggle('widetab', this.activeTab === 'codex');
     if (isScreenOpen('screen-inventory')) {
       if (this.activeTab === 'inv') this.renderInventory();
       else if (this.activeTab === 'spells') this.renderSpells();
@@ -160,7 +165,21 @@ export class Panels {
     const who = el('div');
     who.appendChild(el('div', 'charname', p.name));
     who.appendChild(el('div', 'charsub', `${cls.name} - Level ${p.level}`));
-    who.appendChild(el('div', 'charsub goldtext', `${p.gold} gold`));
+    const goldRow = el('div', 'goldrow');
+    goldRow.appendChild(el('span', 'charsub goldtext', `${p.gold} gold`));
+    const dropGold = el('button', 'btn small', 'Drop…');
+    dropGold.addEventListener('click', async () => {
+      const amount = await promptNumber({
+        title: 'Drop gold',
+        body: `You are carrying ${p.gold} gold. Dropped coin can be picked up by anyone in the party.`,
+        max: p.gold,
+      });
+      if (!amount) return;
+      this.actions.dropGold(amount);
+      this.refresh();
+    });
+    goldRow.appendChild(dropGold);
+    who.appendChild(goldRow);
     head.appendChild(who);
     left.appendChild(head);
 
@@ -381,10 +400,11 @@ export class Panels {
   renderCodex() {
     const pane = $('#pane-codex');
     pane.innerHTML = '';
-    const codex = this.world?.codex || { monsters: [], traps: [] };
+    const codex = this.world?.codex || { monsters: [], traps: [], bosses: [] };
+    const bosses = codex.bosses || [];
 
-    const total = Object.keys(MONSTERS).length + Object.keys(TRAP_INFO).length;
-    const found = codex.monsters.length + codex.traps.length;
+    const total = Object.keys(MONSTERS).length + Object.keys(TRAP_INFO).length + BOSSES.length;
+    const found = codex.monsters.length + codex.traps.length + bosses.length;
     pane.appendChild(el('h3', null, `Dungeon Compendium - ${found} of ${total} recorded`));
 
     if (!found) {
@@ -393,45 +413,82 @@ export class Panels {
       return;
     }
 
-    const grid = el('div', 'codexgrid');
+    // Three shelves, so a long run does not become one undifferentiated wall.
+    const section = (title, count, build) => {
+      if (!count) return;
+      pane.appendChild(el('h4', 'cxsection', `${title} (${count})`));
+      const grid = el('div', 'codexgrid');
+      build(grid);
+      pane.appendChild(grid);
+    };
 
-    for (const kind of codex.traps) {
-      const info = TRAP_INFO[kind];
-      if (!info) continue;
-      const card = el('div', 'codexcard');
-      const art = el('div', 'codexart');
-      art.appendChild(trapThumb(kind, info.color));
-      card.appendChild(art);
-      const text = el('div');
-      text.appendChild(el('div', 'cxname', info.name));
-      text.appendChild(el('div', 'cxtype', info.persistent ? 'Trap - re-arms' : 'Trap - single use'));
-      text.appendChild(el('div', 'cxdesc', info.flavour));
-      card.appendChild(text);
-      grid.appendChild(card);
-    }
-
-    for (const id of codex.monsters) {
-      const def = MONSTERS[id];
-      if (!def) continue;
-      const card = el('div', 'codexcard');
-      const art = el('div', 'codexart');
-      const img = new Image();
-      img.src = portraitUrl('mob', def.sheet);
-      art.appendChild(img);
-      card.appendChild(art);
-      const text = el('div');
-      text.appendChild(el('div', 'cxname', def.name));
-      text.appendChild(el('div', 'cxtype', `${AI_LABEL[def.ai] || def.ai} - floors ${def.floors[0]}-${def.floors[1]}`));
-      text.appendChild(el('div', 'cxdesc', def.flavour));
-      const stats = el('div', 'cxstats');
-      for (const bit of [`${def.base.hp} hp`, `${def.base.damage} dmg`, `${def.base.armor} arm`, `${def.base.xp} xp`]) {
-        stats.appendChild(el('span', null, bit));
+    section('Traps', codex.traps.length, (grid) => {
+      for (const kind of codex.traps) {
+        const info = TRAP_INFO[kind];
+        if (!info) continue;
+        const card = el('div', 'codexcard');
+        const art = el('div', 'codexart');
+        art.appendChild(trapThumb(kind, info.color));
+        card.appendChild(art);
+        const text = el('div');
+        text.appendChild(el('div', 'cxname', info.name));
+        text.appendChild(el('div', 'cxtype', info.persistent ? 'Trap - re-arms' : 'Trap - single use'));
+        text.appendChild(el('div', 'cxdesc', info.flavour));
+        card.appendChild(text);
+        grid.appendChild(card);
       }
-      text.appendChild(stats);
-      card.appendChild(text);
-      grid.appendChild(card);
-    }
-    pane.appendChild(grid);
+    });
+
+    section('Bosses', bosses.length, (grid) => {
+      for (const floor of bosses) {
+        const def = BOSSES.find((b) => b.floor === floor);
+        if (!def) continue;
+        const base = MONSTERS[def.base];
+        const card = el('div', 'codexcard boss');
+        const art = el('div', 'codexart');
+        if (base) {
+          const img = new Image();
+          img.src = portraitUrl('mob', base.sheet);
+          art.appendChild(img);
+        }
+        card.appendChild(art);
+        const text = el('div');
+        text.appendChild(el('div', 'cxname', def.name));
+        text.appendChild(el('div', 'cxtype', `Boss - floor ${def.floor}`));
+        text.appendChild(el('div', 'cxdesc', def.title));
+        const stats = el('div', 'cxstats');
+        for (const bit of [`x${def.hpMult} hp`, `x${def.damageMult} dmg`, `x${def.xpMult} xp`]) {
+          stats.appendChild(el('span', null, bit));
+        }
+        text.appendChild(stats);
+        card.appendChild(text);
+        grid.appendChild(card);
+      }
+    });
+
+    section('Monsters', codex.monsters.length, (grid) => {
+      for (const id of codex.monsters) {
+        const def = MONSTERS[id];
+        if (!def) continue;
+        const card = el('div', 'codexcard');
+        const art = el('div', 'codexart');
+        const img = new Image();
+        img.src = portraitUrl('mob', def.sheet);
+        art.appendChild(img);
+        card.appendChild(art);
+        const text = el('div');
+        text.appendChild(el('div', 'cxname', def.name));
+        text.appendChild(el('div', 'cxtype', `${AI_LABEL[def.ai] || def.ai} - floors ${def.floors[0]}-${def.floors[1]}`));
+        text.appendChild(el('div', 'cxdesc', def.flavour));
+        const stats = el('div', 'cxstats');
+        for (const bit of [`${def.base.hp} hp`, `${def.base.damage} dmg`, `${def.base.armor} arm`, `${def.base.xp} xp`]) {
+          stats.appendChild(el('span', null, bit));
+        }
+        text.appendChild(stats);
+        card.appendChild(text);
+        grid.appendChild(card);
+      }
+    });
   }
 
   // -------------------------------------------------------------------------

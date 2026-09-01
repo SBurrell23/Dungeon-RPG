@@ -15,7 +15,7 @@ import { clamp } from '../core/util.js';
 export const SLOTS = ['weapon', 'offhand', 'head', 'chest', 'gloves', 'boots', 'belt', 'amulet', 'ring1', 'ring2'];
 
 /** Bag capacity. Loot is scarce enough that this is generous, not a constraint. */
-export const INVENTORY_SIZE = 50;
+export const INVENTORY_SIZE = 60;
 
 export const SLOT_LABEL = {
   weapon: 'Weapon', offhand: 'Off-hand', head: 'Head', chest: 'Chest',

@@ -21,12 +21,12 @@ const CHEST_SIZE = 24;
 const TRAP_OPACITY = 0.72;
 
 /**
- * Floor spikes, as a fraction of a tile.
+ * How far back into the floor the spike beds sit.
  *
- * Half the width is a quarter of the footprint, which leaves a bed of them
- * reading as scattered spikes rather than a paved surface.
+ * They cover a whole tile and come in clusters, so at full strength they paved
+ * over the ground; this keeps them legible without taking the floor over.
  */
-const PIT_SPIKE_SCALE = 0.5;
+const PIT_SPIKE_ALPHA = 0.45;
 
 /** Seconds of the descent ritual; mirrors DESCENT_TIME in game/world.js. */
 const DESCENT_SECONDS = 10;
@@ -248,7 +248,7 @@ export class Renderer {
 
     // Chests are 48x32 art on a 48px tile; keep the aspect and sit it on the
     // floor rather than centring it in the tile.
-    const w = CHEST_SIZE * 2.25;
+    const w = CHEST_SIZE * 1.8;
     const h = w * (fh / fw);
     ctx.save();
     ctx.translate(px + TILE / 2, py + TILE / 2 + 4);
@@ -304,14 +304,15 @@ export class Renderer {
     const frame = world ? world.trapFrame(p) : 0;
 
     if (p.kind === 'pit') {
-      // Floor spikes are a scatter, not a slab: a quarter of the tile's
-      // footprint, sitting in the middle of it, and mirrored on a hash of the
-      // tile so a bed of them is not the same sprite stamped in a grid.
-      const size = TILE * PIT_SPIKE_SCALE;
+      // Full tile, but sunk well back into the floor: at full strength a bed of
+      // them paved over the ground, and shrinking them read as clutter. Faint
+      // and full-size looks like spikes set into the stone. Mirrored on a hash
+      // of the tile so a bed is not one sprite stamped in a grid.
       ctx.save();
+      ctx.globalAlpha *= PIT_SPIKE_ALPHA;
       ctx.translate(px + TILE / 2, py + TILE / 2);
       if (((p.x * 73856093) ^ (p.y * 19349663)) & 2) ctx.scale(-1, 1);
-      ctx.drawImage(img, frame * def.fw, 0, def.fw, def.fh, -size / 2, -size / 2, size, size);
+      ctx.drawImage(img, frame * def.fw, 0, def.fw, def.fh, -TILE / 2, -TILE / 2, TILE, TILE);
       ctx.restore();
       return;
     }
@@ -358,37 +359,61 @@ export class Renderer {
     }
   }
 
-  /** The one hand-drawn trap: a perforated cap over a pocket of rot. */
+  /**
+   * The one hand-drawn trap: a perforated cap over a pocket of rot.
+   *
+   * Built on whole pixels from the tile's own corner, so the grate lands square
+   * on the tile instead of a half-pixel off it.
+   */
   drawGasVent(ctx, p, px, py) {
-    const x = px + TILE / 2, y = py + TILE / 2;
+    const x0 = Math.round(px) + 6;       // a 36px plate centred in a 48px tile
+    const y0 = Math.round(py) + 6;
+    const S = 36;
     const armed = p.armed && !p.spent;
+
     // Flat blocks, no gradients - it has to sit beside the pixel art, not on it.
     ctx.fillStyle = '#2b2a22';
-    ctx.fillRect(x - 15, y - 13, 30, 26);
+    ctx.fillRect(x0, y0, S, S);
     ctx.fillStyle = '#4a5238';
-    ctx.fillRect(x - 13, y - 11, 26, 22);
+    ctx.fillRect(x0 + 2, y0 + 2, S - 4, S - 4);
     ctx.fillStyle = '#5d6844';
-    ctx.fillRect(x - 13, y - 11, 26, 3);
+    ctx.fillRect(x0 + 2, y0 + 2, S - 4, 3);
     ctx.fillStyle = '#33391f';
-    ctx.fillRect(x - 13, y + 8, 26, 3);
+    ctx.fillRect(x0 + 2, y0 + S - 5, S - 4, 3);
 
-    // The perforations.
+    // A 4x4 grid of bores, all on whole pixels.
     ctx.fillStyle = '#1d2313';
-    for (let r = 0; r < 3; r++) {
-      for (let c = 0; c < 4; c++) {
-        ctx.fillRect(x - 11 + c * 7, y - 8 + r * 7, 4, 4);
-      }
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) ctx.fillRect(x0 + 5 + c * 8, y0 + 6 + r * 7, 5, 4);
     }
     if (!armed) return;
-    // A little gas sitting in the holes, breathing.
-    const pulse = 0.5 + 0.5 * Math.sin(this.time * 2.2 + p.x * 1.7 + p.y);
-    ctx.globalAlpha *= 0.35 + pulse * 0.4;
-    ctx.fillStyle = '#96e072';
-    for (let r = 0; r < 3; r++) {
-      for (let c = 0; c < 4; c++) {
-        ctx.fillRect(x - 11 + c * 7, y - 8 + r * 7, 4, 2);
-      }
+
+    const breathe = 0.5 + 0.5 * Math.sin(this.time * 2.2 + p.x * 1.7 + p.y);
+    // Gas sitting in the bores.
+    ctx.save();
+    ctx.globalAlpha *= 0.55 + breathe * 0.35;
+    ctx.fillStyle = '#b6f08a';
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) ctx.fillRect(x0 + 5 + c * 8, y0 + 6 + r * 7, 5, 2);
     }
+    ctx.restore();
+
+    // And a cloud actually hanging over it, so the hazard reads from a distance
+    // rather than only when you are standing on the plate.
+    ctx.save();
+    const cx = px + TILE / 2, cy = py + TILE / 2;
+    for (let i = 0; i < 7; i++) {
+      const seed = p.x * 2.3 + p.y * 1.7 + i * 1.9;
+      const t = (this.time * 0.5 + i / 7 + seed) % 1;
+      const r = 7 + t * 15;
+      const ox = Math.sin(seed * 4 + this.time * 0.7) * 12;
+      const oy = -t * 16 + Math.cos(seed * 3 + this.time * 0.5) * 5;
+      ctx.globalAlpha = (1 - t) * 0.42;
+      ctx.fillStyle = i % 2 ? '#8ad86a' : '#6fbf52';
+      // Blocky puffs rather than soft circles, to match the art.
+      ctx.fillRect(Math.round(cx + ox - r / 2), Math.round(cy + oy - r / 2), Math.round(r), Math.round(r * 0.7));
+    }
+    ctx.restore();
   }
 
   drawZones(ctx, world) {

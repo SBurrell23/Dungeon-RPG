@@ -178,7 +178,10 @@ export const FX_STRIPS = {
   fxWizard1: 10, fxWizard2: 7, fxPriestAttack: 5, fxPriestHeal: 4, fxNecro: 6, fxSummon: 7,
 };
 
-export const MUSIC = { dungeon: 'assets/music/Stay Down.mp3' };
+export const MUSIC = {
+  dungeon: 'assets/music/Stay Down.mp3',
+  boss: 'assets/music/boss-music.mp3',
+};
 
 // ---------------------------------------------------------------------------
 // Terrain atlas geometry

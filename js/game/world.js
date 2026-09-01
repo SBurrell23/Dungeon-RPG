@@ -72,6 +72,9 @@ const TRAP_PERIOD = { fire: 3.2, spike: 2.8, squisher: 3.6 };
 /** Seconds between ticks for the traps that are simply always on. */
 const PIT_TICK = 0.9;
 
+/** How close a living boss has to be for its theme to take over. */
+const BOSS_MUSIC_RANGE = 520;
+
 /** What to call each trap in the log. */
 const TRAP_LABEL = {
   bear: 'bear trap', fire: 'fire vent', spike: 'spike bed',
@@ -122,7 +125,7 @@ export class World {
     this.descent = { playerId: null, progress: 0, flash: 0 };
 
     /** What the party has seen this run - drives the Compendium tab. */
-    this.codex = { monsters: [], traps: [] };
+    this.codex = { monsters: [], traps: [], bosses: [] };
     this.state = 'playing'; // playing | descending | victory | defeat
     this.partyGold = 0;
 
@@ -1290,12 +1293,15 @@ export class World {
 
   /** Bypasses armour and buffs - used for self-inflicted costs. */
   damageActorDirect(actor, amount) {
+    if (actor.kind === 'player' && this.debug.god) return;
     actor.hp -= amount;
     this.floatText(actor.x, actor.y - actor.radius - 10, `-${Math.round(amount)}`, '#c060ff');
     if (actor.hp <= 0) this.handleDeath(actor, null);
   }
 
   applyEffect(source, target, e) {
+    // No bleeding, burning, chilling or stunning a tester in god mode either.
+    if (target.kind === 'player' && this.debug.god) return;
     const power = source?.stats?.spellPower || source?.stats?.damage || 10;
     switch (e.id) {
       case 'burn':
@@ -1326,6 +1332,10 @@ export class World {
   }
 
   tickDots(actor, dt) {
+    // Damage-over-time bypassed god mode entirely, which is how a bear trap
+    // could still kill an invulnerable tester: the bite was blocked and the
+    // bleeding was not.
+    if (actor.kind === 'player' && this.debug.god) return;
     for (const b of actor.buffs) {
       if (!b.dot) continue;
       b.tickTimer -= dt;
@@ -1631,7 +1641,9 @@ export class World {
    * once, and the entry stays for the rest of the run.
    */
   discover(kind, id) {
-    const set = kind === 'trap' ? this.codex.traps : this.codex.monsters;
+    const set = kind === 'trap' ? this.codex.traps
+      : kind === 'boss' ? this.codex.bosses
+        : this.codex.monsters;
     if (set.includes(id)) return;
     set.push(id);
     this.emitEvent({ t: 'codex', k: kind, id });
@@ -1641,12 +1653,41 @@ export class World {
   /** Record every monster close enough to have been seen this tick. */
   updateCodex() {
     for (const m of this.monsters) {
-      if (m.dead || this.codex.monsters.includes(m.monsterId)) continue;
+      if (m.dead) continue;
+      // A boss is recorded on its own shelf as well as its species, since what
+      // you want to look up afterwards is the thing with the name.
+      const wantBoss = m.boss && !this.codex.bosses.includes(m.boss);
+      const wantMob = !this.codex.monsters.includes(m.monsterId);
+      if (!wantBoss && !wantMob) continue;
       for (const p of this.players) {
         if (p.dead) continue;
-        if (dist2(m.x, m.y, p.x, p.y) < CODEX_RANGE * CODEX_RANGE) { this.discover('monster', m.monsterId); break; }
+        if (dist2(m.x, m.y, p.x, p.y) < CODEX_RANGE * CODEX_RANGE) {
+          if (wantMob) this.discover('monster', m.monsterId);
+          if (wantBoss) this.discover('boss', m.boss);
+          break;
+        }
       }
     }
+  }
+
+  /**
+   * Is the party in the boss's presence?
+   *
+   * True while a living boss is close, or while anyone is actually inside the
+   * boss chamber. Room membership matters: a corridor that happens to run past
+   * the chamber wall is metres away but has nothing to do with the fight, and
+   * swapping the music there would be wrong.
+   */
+  bossPresence() {
+    const boss = this.monsters.find((m) => m.boss && !m.dead);
+    if (!boss) return false;
+    for (const p of this.players) {
+      if (p.dead || p.downed) continue;
+      const room = this.dungeon.roomAt(Math.floor(p.x / TILE), Math.floor(p.y / TILE));
+      if (room && room.id === this.dungeon.bossRoom) return true;
+      if (dist2(p.x, p.y, boss.x, boss.y) < BOSS_MUSIC_RANGE * BOSS_MUSIC_RANGE) return true;
+    }
+    return false;
   }
 
   /**
@@ -1821,7 +1862,7 @@ export class World {
         this.dealDamage({ source: null, target: p, amount: power * 2.6, type: 'phys' });
         this.applyEffect({ stats: { spellPower: power } }, p,
           { id: 'bleed', duration: 5, coef: 0.18, tick: 0.6 });
-        this.applyBuff(p, { id: 'chill', name: 'Caught', duration: 1.1, slow: 0.75 });
+        if (!this.debug.god) this.applyBuff(p, { id: 'chill', name: 'Caught', duration: 1.1, slow: 0.75 });
         this.spawnFx('spikes', p.x, p.y, { color: '#c8c8d0', radius: 24, life: 0.4 });
         this.sfxAt(p.x, p.y, 'spike');
         break;

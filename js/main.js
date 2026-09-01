@@ -1,5 +1,6 @@
 import { assets } from './assets/loader.js';
 import { VERSION, BUILD } from './version.js';
+import { CURSORS, DEFAULT_CURSOR, applyCursor } from './ui/cursors.js';
 import { Input, mergeIntents, EMPTY_INTENT } from './core/input.js';
 import {
   acceptInput, consumeIntent, predictLocal, reconcile, neutralIntent, INPUT_TIMEOUT,
@@ -14,7 +15,9 @@ import { applyRemoteEvent } from './net/events.js';
 import { getClass } from './game/classes.js';
 import { recomputeStats, xpToNext } from './game/stats.js';
 import { getAbility, ABILITIES } from './game/abilities.js';
-import { SELL_RATE, BUY_MARKUP, INVENTORY_SIZE, rollEquipment, makeConsumable } from './game/items.js';
+import {
+  SELL_RATE, BUY_MARKUP, INVENTORY_SIZE, rollEquipment, makeConsumable, makeGold,
+} from './game/items.js';
 import { bossForFloor, MONSTERS, TRAP_INFO } from './game/monsters.js';
 import { saveWorld, loadIntoWorld, hasSave, readSaveMeta, deleteSave } from './game/save.js';
 
@@ -34,7 +37,7 @@ import {
 } from './ui/ui.js';
 
 import { initAudio, resumeAudio, playSfx, setSfxVolume } from './audio/sfx.js';
-import { initMusic, startMusic, setMusicVolume, setDepth } from './audio/music.js';
+import { initMusic, startMusic, setMusicVolume, setDepth, setBossMusic } from './audio/music.js';
 
 import { Net } from './net/net.js';
 import {
@@ -75,6 +78,7 @@ const game = {
   lastInputSend: 0,
   lastSave: 0,
   shakeEnabled: true,
+  cursor: DEFAULT_CURSOR,
   revealAll: false,
   aimWorld: { x: 0, y: 0 },
 };
@@ -108,6 +112,7 @@ function saveSettings() {
       music: +$('#opt-music').value,
       sfx: +$('#opt-sfx').value,
       shake: $('#opt-shake').checked,
+      cursor: game.cursor,
     }));
   } catch { /* private mode, or a full quota; the game plays fine without */ }
 }
@@ -124,6 +129,27 @@ function loadSettings() {
   setMusicVolume(music / 100);
   setSfxVolume(sfx / 100);
   game.shakeEnabled = shake;
+  setCursor(CURSORS[saved?.cursor] ? saved.cursor : DEFAULT_CURSOR);
+}
+
+/** Pick an aiming cursor and remember it. */
+function setCursor(id) {
+  game.cursor = id;
+  applyCursor(id);
+  for (const b of $('#opt-cursors').children) b.classList.toggle('on', b.dataset.cursor === id);
+}
+
+function buildCursorPicker() {
+  const box = $('#opt-cursors');
+  box.innerHTML = '';
+  for (const [id, def] of Object.entries(CURSORS)) {
+    const b = el('button', 'cursorswatch');
+    b.dataset.cursor = id;
+    b.style.cursor = def.css;
+    b.appendChild(el('span', null, def.name));
+    b.addEventListener('click', () => { setCursor(id); saveSettings(); });
+    box.appendChild(b);
+  }
 }
 
 async function boot() {
@@ -154,7 +180,9 @@ async function boot() {
   game.lobby.refreshPortraits();
 
   game.panels = new Panels(makeActions());
+  buildCursorPicker();
   loadSettings();
+  applyDevFlags();
 
   loop.start();
   goToMenu();
@@ -383,6 +411,7 @@ function afterFloorLoad() {
   game.minimap = game.minimap || new Minimap($('#minimap'), world);
   game.minimap.setWorld(world);
 
+  applyDevFlags();
   game.localPlayer = resolveLocalPlayer(world);
   world.localPlayer = game.localPlayer;
   world.listener = game.localPlayer;
@@ -501,6 +530,7 @@ function makeActions() {
     unequip: forward('unequip', (p, slot) => applyUnequip(p, slot)),
     useItem: forward('useItem', (p, uid) => applyUseItem(p, uid)),
     dropItem: forward('dropItem', (p, uid) => applyDrop(p, uid)),
+    dropGold: forward('dropGold', (p, amount) => applyDropGold(p, amount)),
     learnTome: forward('learnTome', (p, uid) => applyLearnTome(p, uid)),
     bindSpell: forward('bindSpell', (p, slot, id) => { p.hotbar[slot] = id; }),
     allocate: forward('allocate', (p, stat) => applyAllocate(p, stat)),
@@ -540,6 +570,19 @@ function applyUseItem(p, uid) {
   if (item.type === 'consumable') game.world.consume(p, item);
   else if (item.type === 'tome') applyLearnTome(p, uid);
   else if (item.type === 'equipment') applyEquip(p, uid);
+}
+
+/** Drop coin on the floor for a teammate. */
+function applyDropGold(p, amount) {
+  const n = Math.max(1, Math.min(Math.floor(amount) || 0, p.gold));
+  if (!n) return;
+  p.gold -= n;
+  game.world.pickups.push({
+    id: Math.floor(Math.random() * 1e9), kind: 'loot',
+    x: p.x, y: p.y + 28, items: [makeGold(n)], bob: 0, age: 0, dead: false,
+    dropperId: p.id, armed: false,
+  });
+  game.world.pushLog(`${p.name} dropped ${n} gold`, '#ffd23f');
 }
 
 function applyDrop(p, uid) {
@@ -661,20 +704,59 @@ function bindHotkeys() {
  * sync. Host-only: in multiplayer a client's flags would just be overwritten by
  * the next snapshot.
  */
+const DEV_TOGGLES = {
+  'dev-god': 'god', 'dev-speed': 'speed', 'dev-noclip': 'noclip', 'dev-onehit': 'oneHit',
+};
+const DEV_KEY = 'dungeonrpg.dev.v1';
+
+function saveDevFlags() {
+  const out = {};
+  for (const id of [...Object.keys(DEV_TOGGLES), 'dev-reveal', 'dev-nolight']) {
+    out[id] = $(`#${id}`).checked;
+  }
+  try { localStorage.setItem(DEV_KEY, JSON.stringify(out)); } catch { /* not important */ }
+}
+
+/**
+ * Put the dev toggles back the way they were left, and make them bite.
+ *
+ * The checkboxes only ever pushed their value into the *current* world, so
+ * starting a new run silently dropped every flag while the boxes still looked
+ * ticked. This runs on boot and again whenever a world is built.
+ */
+function applyDevFlags() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(DEV_KEY) || 'null'); } catch { /* ignore */ }
+  if (saved) {
+    for (const id of Object.keys(saved)) {
+      const box = document.getElementById(id);
+      if (box) box.checked = !!saved[id];
+    }
+  }
+  for (const [id, flag] of Object.entries(DEV_TOGGLES)) {
+    if (game.world) game.world.debug[flag] = $(`#${id}`).checked;
+  }
+  game.revealAll = $('#dev-reveal').checked;
+  if (game.revealAll && game.world) game.world.explored.fill(1);
+  renderer.enableLighting = !$('#dev-nolight').checked;
+}
+
 function bindDevConsole() {
-  const toggles = {
-    'dev-god': 'god', 'dev-speed': 'speed', 'dev-noclip': 'noclip', 'dev-onehit': 'oneHit',
-  };
-  for (const [id, flag] of Object.entries(toggles)) {
+  for (const [id, flag] of Object.entries(DEV_TOGGLES)) {
     $(`#${id}`).addEventListener('change', (e) => {
       if (game.world) game.world.debug[flag] = e.target.checked;
+      saveDevFlags();
     });
   }
   $('#dev-reveal').addEventListener('change', (e) => {
     game.revealAll = e.target.checked;
     if (e.target.checked && game.world) game.world.explored.fill(1);
+    saveDevFlags();
   });
-  $('#dev-nolight').addEventListener('change', (e) => { renderer.enableLighting = !e.target.checked; });
+  $('#dev-nolight').addEventListener('change', (e) => {
+    renderer.enableLighting = !e.target.checked;
+    saveDevFlags();
+  });
   $('#dev-close').addEventListener('click', () => hideScreen('screen-dev'));
 
   const floors = $('#dev-floors');
@@ -988,7 +1070,7 @@ net.on(MSG.ACT, (d, peerId) => {
   if (!p) return;
   const handlers = {
     equip: applyEquip, unequip: applyUnequip, useItem: applyUseItem,
-    dropItem: applyDrop, learnTome: applyLearnTome, allocate: applyAllocate,
+    dropItem: applyDrop, dropGold: applyDropGold, learnTome: applyLearnTome, allocate: applyAllocate,
     buy: applyBuy, sell: applySell,
     bindSpell: (pl, slot, id) => { pl.hotbar[slot] = id; },
     descend: () => doDescend(),
@@ -1116,6 +1198,8 @@ function update(dt) {
 
   if (game.revealAll) world.explored.fill(1);
   if (game.minimap) game.minimap.update();
+  // The boss theme follows the fight, not the floor.
+  setBossMusic(world.bossPresence());
 
   // Host: ship state and autosave.
   if (game.isOnline && net.isHost) {

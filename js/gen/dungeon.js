@@ -1133,6 +1133,13 @@ function corridorSpan(d, x, y) {
     while (d.isFloor(sx + dx * span, sy + dy * span) && span < 4) span++;
     if (span < 2 || span > 3) continue;                      // thin only
     if (!d.isSolid(sx + dx * span, sy + dy * span)) continue;
+    // Walking back to the wall can step out of the corridor and into the room
+    // it opens onto; every tile the rams close over has to be hallway.
+    let allCorridor = true;
+    for (let i = 0; i < span; i++) {
+      if (d.corridor[d.idx(sx + dx * i, sy + dy * i)] !== 1) { allCorridor = false; break; }
+    }
+    if (!allCorridor) continue;
     // And it has to be a corridor along the other axis, not a room edge.
     const ox = dx ? 0 : 1, oy = dy ? 0 : 1;
     if (!d.isFloor(sx + ox, sy + oy) && !d.isFloor(sx - ox, sy - oy)) continue;
@@ -1203,39 +1210,78 @@ function placeTraps(rng, d, floorNo, freeTile, take) {
   // `spots`: that list requires four floor neighbours, and a two-wide corridor -
   // exactly the shape a crusher needs - has no such tile.
   if (floorNo >= 3) {
-    const want = 1 + Math.floor(floorNo / 3);
-    const lanes = [];
+    // Work in whole hallways rather than cross-sections. Every tile along a
+    // corridor is its own valid cross-section, so counting those and taking a
+    // third of them put a crusher every few paces down every passage on the
+    // floor; a third of *hallways* is what was actually wanted.
+    const seenTile = new Uint8Array(d.w * d.h);
+    const halls = [];
     for (let y = 3; y < d.h - 3; y++) {
       for (let x = 3; x < d.w - 3; x++) {
-        if (!freeTile(x, y) || d.corridor[d.idx(x, y)] !== 1) continue;
-        if (Math.hypot(x - d.entrance.x, y - d.entrance.y) < 10) continue;
-        lanes.push([x, y]);
+        const i0 = d.idx(x, y);
+        if (seenTile[i0] || d.corridor[i0] !== 1 || !d.isFloor(x, y)) continue;
+        // Flood the connected run of corridor.
+        const run = [];
+        const stack = [[x, y]];
+        seenTile[i0] = 1;
+        while (stack.length) {
+          const [cx, cy] = stack.pop();
+          run.push([cx, cy]);
+          for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = cx + ax, ny = cy + ay;
+            if (nx < 1 || ny < 1 || nx >= d.w - 1 || ny >= d.h - 1) continue;
+            const ni = d.idx(nx, ny);
+            if (seenTile[ni] || d.corridor[ni] !== 1 || !d.isFloor(nx, ny)) continue;
+            seenTile[ni] = 1;
+            stack.push([nx, ny]);
+          }
+        }
+        if (run.length >= 4) halls.push(run);
       }
     }
-    rng.shuffle(lanes);
-    let made = 0;
-    const used = new Set();
-    for (const [x, y] of lanes) {
-      if (made >= want) break;
-      if (!freeTile(x, y)) continue;
-      const span = corridorSpan(d, x, y);
-      if (span && used.has(`${span.x},${span.y}`)) continue;
-      if (!span) continue;
-      const tiles = [];
-      for (let i = 0; i < span.span; i++) {
-        tiles.push(span.axis === 'v' ? [span.x, span.y + i] : [span.x + i, span.y]);
+
+    // Which of those hallways can actually hold one.
+    const eligible = [];
+    for (const run of halls) {
+      const anchors = new Map();
+      for (const [x, y] of run) {
+        if (!freeTile(x, y)) continue;
+        if (Math.hypot(x - d.entrance.x, y - d.entrance.y) < 10) continue;
+        const span = corridorSpan(d, x, y);
+        if (!span) continue;
+        anchors.set(`${span.x},${span.y}`, span);
       }
-      if (!tiles.every(([tx, ty]) => freeTile(tx, ty))) continue;
-      d.props.push({
-        type: 'trap', kind: 'squisher', x: span.x, y: span.y,
-        axis: span.axis, span: span.span,
-        sheet: span.axis === 'v' ? 'pushV' : 'pushH',
-        armed: true, spent: false, hidden: false,
-        offset: +(rng.float(0, 3.6)).toFixed(2),
-      });
-      for (const [tx, ty] of tiles) take(tx, ty);
-      used.add(`${span.x},${span.y}`);
-      made++;
+      if (anchors.size) eligible.push([...anchors.values()]);
+    }
+
+    // A third of them, each getting one to three rams spaced down its length,
+    // so a passage is a rhythm to time rather than a single obstacle.
+    rng.shuffle(eligible);
+    const wantHalls = Math.ceil(eligible.length / 3);
+    for (let h = 0; h < wantHalls && h < eligible.length; h++) {
+      const anchors = eligible[h];
+      rng.shuffle(anchors);
+      const want = Math.min(anchors.length, rng.int(1, 3));
+      const placedHere = [];
+      for (const span of anchors) {
+        if (placedHere.length >= want) break;
+        const tiles = [];
+        for (let i = 0; i < span.span; i++) {
+          tiles.push(span.axis === 'v' ? [span.x, span.y + i] : [span.x + i, span.y]);
+        }
+        if (!tiles.every(([tx, ty]) => freeTile(tx, ty))) continue;
+        // Keep a real gap between rams in the same hallway.
+        if (placedHere.some((o) => Math.abs(o.x - span.x) + Math.abs(o.y - span.y) < 6)) continue;
+        d.props.push({
+          type: 'trap', kind: 'squisher', x: span.x, y: span.y,
+          axis: span.axis, span: span.span,
+          sheet: span.axis === 'v' ? 'pushV' : 'pushH',
+          armed: true, spent: false, hidden: false,
+          offset: +(rng.float(0, 3.6)).toFixed(2),
+        });
+        for (const [tx, ty] of tiles) take(tx, ty);
+        placedHere.push(span);
+      }
     }
   }
 

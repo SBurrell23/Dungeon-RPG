@@ -142,6 +142,14 @@ tests/
 
 ## Design notes
 
+### Music follows the fight
+
+Two tracks play at once and only one is turned up, so entering a boss chamber is
+a crossfade rather than a stutter and a reload. The switch is driven by
+`bossPresence()`: a living boss close by, or anyone standing inside the boss
+room. Room membership is the part that matters - a corridor running past the
+chamber wall is metres away and has nothing to do with the fight.
+
 ### Traps are on a clock, not a trigger
 
 Most traps no longer wait to be stepped on. A fire vent, a spike bed and a

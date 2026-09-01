@@ -206,11 +206,14 @@
     </section>
 
     <section id="screen-options" class="screen">
-      <div class="panel narrow">
+      <div class="panel optionspanel">
         <h2>Options</h2>
         <label class="field"><span>Music volume</span><input type="range" id="opt-music" min="0" max="100" value="35"></label>
         <label class="field"><span>Effects volume</span><input type="range" id="opt-sfx" min="0" max="100" value="50"></label>
         <label class="check"><input type="checkbox" id="opt-shake" checked><span>Screen shake</span></label>
+
+        <div class="field"><span>Aiming cursor</span></div>
+        <div id="opt-cursors" class="cursorpick"></div>
 
         <h3>Controls</h3>
         <div class="controls">
@@ -283,6 +286,7 @@
       <div class="panel narrow">
         <h2 id="confirm-title">Are you sure?</h2>
         <p class="sub" id="confirm-body"></p>
+        <input type="number" id="confirm-number" class="hidden" min="1" step="1" placeholder="Amount">
         <div class="menu-actions">
           <button class="btn danger" id="confirm-yes">Confirm</button>
           <button class="btn ghost" id="confirm-no">Cancel</button>

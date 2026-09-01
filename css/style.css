@@ -628,3 +628,42 @@ kbd {
 }
 
 .spectate-bar .revivehint { display: block; color: #9fd6a0; margin-top: 4px; }
+
+/* ===================== Options: cursor picker ===================== */
+
+.panel.optionspanel { width: 560px; max-width: 92vw; }
+
+.cursorpick { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; margin: 4px 0 14px; }
+.cursorswatch {
+  font: inherit; font-size: 10px; letter-spacing: .04em;
+  padding: 14px 6px 8px; background: rgba(0,0,0,.35);
+  border: 1px solid var(--line); color: var(--dim);
+  display: flex; align-items: flex-end; justify-content: center; min-height: 52px;
+}
+.cursorswatch:hover { border-color: var(--line-hot); color: var(--ink); background: rgba(255,255,255,.05); }
+.cursorswatch.on { border-color: var(--gold); color: var(--gold); background: rgba(255,196,92,.09); }
+
+/* ===================== Compendium sections ===================== */
+
+/* The compendium is three grids of cards, so its tab gets more room than the
+   inventory needs. */
+.panel.widetab { width: 1040px; max-width: 96vw; }
+.cxsection {
+  margin: 18px 0 8px; font-size: 12px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--gold);
+  border-bottom: 1px solid var(--line); padding-bottom: 5px;
+}
+.cxsection:first-of-type { margin-top: 6px; }
+.codexcard.boss { border-color: #6a3d8f; background: rgba(120,60,180,.08); }
+
+/* ===================== Gold row ===================== */
+
+.goldrow { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.goldrow .goldtext { margin: 0; }
+
+#confirm-number {
+  width: 100%; margin: 10px 0 4px; padding: 8px 10px;
+  background: #0d0a10; border: 1px solid var(--line); color: var(--ink);
+  font: inherit; font-size: 14px; text-align: center;
+}
+#confirm-number.hidden { display: none; }

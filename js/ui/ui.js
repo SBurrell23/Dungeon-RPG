@@ -156,6 +156,52 @@ export function openItemMenu(x, y, entries, after) {
   window.addEventListener('wheel', closeItemMenu, true);
 }
 
+/**
+ * Ask for a number, in the game's own voice.
+ *
+ * Same shape as confirmDialog: resolves to the value, or null if cancelled.
+ * Clamped to `max` on the way out so a caller never has to re-check it.
+ */
+export function promptNumber({ title, body, max = Infinity, confirmLabel = 'Drop', cancelLabel = 'Cancel' }) {
+  return new Promise((resolve) => {
+    $('#confirm-title').textContent = title;
+    $('#confirm-body').textContent = body;
+    const yes = $('#confirm-yes');
+    const no = $('#confirm-no');
+    const field = $('#confirm-number');
+    yes.textContent = confirmLabel;
+    no.textContent = cancelLabel;
+    field.classList.remove('hidden');
+    field.value = '';
+    field.max = Number.isFinite(max) ? String(max) : '';
+
+    const finish = (value) => {
+      field.classList.add('hidden');
+      hideScreen('screen-confirm');
+      yes.removeEventListener('click', onYes);
+      no.removeEventListener('click', onNo);
+      window.removeEventListener('keydown', onKey, true);
+      resolve(value);
+    };
+    const take = () => {
+      const n = Math.floor(Number(field.value));
+      if (!Number.isFinite(n) || n <= 0) { finish(null); return; }
+      finish(Math.min(n, max));
+    };
+    const onYes = () => take();
+    const onNo = () => finish(null);
+    const onKey = (e) => {
+      if (e.code === 'Escape') { e.stopPropagation(); finish(null); }
+      if (e.code === 'Enter') { e.stopPropagation(); take(); }
+    };
+    yes.addEventListener('click', onYes);
+    no.addEventListener('click', onNo);
+    window.addEventListener('keydown', onKey, true);
+    showScreen('screen-confirm', { exclusive: false });
+    setTimeout(() => field.focus(), 30);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tooltip
 // ---------------------------------------------------------------------------
