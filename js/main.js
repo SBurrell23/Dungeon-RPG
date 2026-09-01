@@ -1,6 +1,7 @@
 import { assets } from './assets/loader.js';
 import { VERSION, BUILD } from './version.js';
 import { CURSORS, DEFAULT_CURSOR, applyCursor } from './ui/cursors.js';
+import { DEFAULT_TILESET } from './render/tilesets/index.js';
 import { Input, mergeIntents, EMPTY_INTENT } from './core/input.js';
 import {
   acceptInput, consumeIntent, predictLocal, reconcile, neutralIntent, INPUT_TIMEOUT,
@@ -79,6 +80,7 @@ const game = {
   lastSave: 0,
   shakeEnabled: true,
   cursor: DEFAULT_CURSOR,
+  tileset: DEFAULT_TILESET,
   revealAll: false,
   aimWorld: { x: 0, y: 0 },
 };
@@ -113,6 +115,7 @@ function saveSettings() {
       sfx: +$('#opt-sfx').value,
       shake: $('#opt-shake').checked,
       cursor: game.cursor,
+      tileset: game.tileset,
     }));
   } catch { /* private mode, or a full quota; the game plays fine without */ }
 }
@@ -130,6 +133,20 @@ function loadSettings() {
   setSfxVolume(sfx / 100);
   game.shakeEnabled = shake;
   setCursor(CURSORS[saved?.cursor] ? saved.cursor : DEFAULT_CURSOR);
+  setTileset(saved?.tileset || DEFAULT_TILESET);
+}
+
+/**
+ * Choose the terrain look.
+ *
+ * Every baked chunk is now wrong, so the tilemap throws its cache away and the
+ * next frame repaints from the new set. Switching mid-run is safe: the tileset
+ * only decides how the floor is drawn, never where it is.
+ */
+function setTileset(id) {
+  game.tileset = id;
+  $('#opt-tileset').value = id;
+  tilemap.setTileset(id);
 }
 
 /** Pick an aiming cursor and remember it. */
@@ -303,6 +320,7 @@ function bindMenu() {
     saveSettings();
   });
   $('#opt-shake').addEventListener('change', (e) => { game.shakeEnabled = e.target.checked; saveSettings(); });
+  $('#opt-tileset').addEventListener('change', (e) => { setTileset(e.target.value); saveSettings(); });
 
   $('#btn-closemap').addEventListener('click', () => toggleMap(false));
   $('#btn-descend-no').addEventListener('click', () => hideScreen('screen-descend'));

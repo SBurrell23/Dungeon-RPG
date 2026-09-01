@@ -1,5 +1,5 @@
-import { TILE, FLOOR_VARIANTS, VOID_COLOR, decorPlacement } from '../assets/manifest.js';
-import { drawLayer, drawRim } from '../gen/autotile.js';
+import { TILE, VOID_COLOR } from '../assets/manifest.js';
+import { getTileset, DEFAULT_TILESET } from './tilesets/index.js';
 
 const CHUNK = 12;             // tiles per chunk edge
 const CHUNK_PX = CHUNK * TILE;
@@ -20,6 +20,14 @@ export class TileMap {
     this.cache = new Map();   // "cx,cy" -> {canvas, used}
     this.dungeon = null;
     this.clock = 0;
+    this.tilesetId = DEFAULT_TILESET;
+  }
+
+  /** Swap the terrain look. Every baked chunk is now wrong, so drop them all. */
+  setTileset(id) {
+    if (id === this.tilesetId) return;
+    this.tilesetId = id;
+    this.cache.clear();
   }
 
   setDungeon(dungeon) {
@@ -87,37 +95,10 @@ export class TileMap {
     const x0 = cx * CHUNK, y0 = cy * CHUNK;
     const x1 = x0 + CHUNK, y1 = y0 + CHUNK;
 
-    // 1. Base floor across the whole walkable mask.
-    const baseVariant = FLOOR_VARIANTS[d.theme.base] || FLOOR_VARIANTS[0];
-    const isFloor = (x, y) => d.isFloor(x, y);
-    drawLayer(ctx, this.assets.img(baseVariant.sheet), baseVariant, isFloor, x0 - 1, y0 - 1, x1 + 1, y1 + 1, x0, y0);
+    // Everything about how this floor looks belongs to the tileset.
+    getTileset(this.tilesetId).bake(ctx, { dungeon: d, assets: this.assets, x0, y0, x1, y1 });
 
-    // 2. Accent patches on top. Each distinct variant present in (and around)
-    //    this chunk gets its own autotiled pass, which gives the patches proper
-    //    rounded borders instead of hard rectangles.
-    const present = new Set();
-    for (let y = y0 - 2; y < y1 + 2; y++) {
-      for (let x = x0 - 2; x < x1 + 2; x++) {
-        if (!d.isFloor(x, y)) continue;
-        const v = d.variant[d.idx(x, y)];
-        if (v !== d.theme.base) present.add(v);
-      }
-    }
-    for (const v of present) {
-      const variant = FLOOR_VARIANTS[v];
-      if (!variant) continue;
-      const mask = (x, y) => d.isFloor(x, y) && d.variant[d.idx(x, y)] === v;
-      drawLayer(ctx, this.assets.img(variant.sheet), variant, mask, x0 - 1, y0 - 1, x1 + 1, y1 + 1, x0, y0);
-    }
-
-    // 3. Rock rim. Emitted from void tiles, so the loop reaches outside the
-    //    chunk to pick up rims that bleed inward; the canvas clips the rest.
-    drawRim(ctx, this.assets.img('cavern'), isFloor, x0 - 2, y0 - 2, x1 + 2, y1 + 2, x0, y0);
-
-    // 4. Static decor.
-    this.drawDecor(ctx, x0, y0, x1, y1);
-
-    // 5. Depth tint. Multiplying by a near-white colour shifts the whole
+    // Depth tint. Multiplying by a near-white colour shifts the whole
     //    chunk's cast without noticeably darkening it, which is what makes one
     //    floor feel different from the next using the same tileset.
     if (d.theme.tint) {
@@ -130,17 +111,4 @@ export class TileMap {
     return canvas;
   }
 
-  drawDecor(ctx, x0, y0, x1, y1) {
-    const d = this.dungeon;
-    const sheet = this.assets.img('cavern');
-    if (!sheet) return;
-    for (const dec of d.decor) {
-      // Props are anchored bottom-centre and can be wider or taller than their
-      // tile, so cull generously and let the chunk canvas clip.
-      if (dec.x < x0 - 3 || dec.x >= x1 + 3 || dec.y < y0 - 3 || dec.y >= y1 + 3) continue;
-      const pl = decorPlacement(dec.kind, dec.x - x0, dec.y - y0);
-      if (!pl) continue;
-      ctx.drawImage(sheet, pl.sx, pl.sy, pl.sw, pl.sh, pl.dx, pl.dy, pl.sw, pl.sh);
-    }
-  }
 }

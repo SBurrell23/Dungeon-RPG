@@ -4,6 +4,7 @@ import {
 import { MONSTERS, ELITE_TINT, BOSS_TINT } from '../game/monsters.js';
 import { CLASSES } from '../game/classes.js';
 import { clamp, TAU } from '../core/util.js';
+import { drawMist, EyesInTheDark } from './ambience.js';
 
 const SPRITE = 100;
 
@@ -58,6 +59,9 @@ export class Renderer {
     this._chestOpenedAt = new WeakMap();
     // Blend factor between the last two simulation ticks; see drawX/drawY.
     this.alpha = 1;
+    this.eyes = new EyesInTheDark();
+    /** Ambience is presentation only; off, the game plays identically. */
+    this.enableAmbience = true;
   }
 
   resize(w, h) {
@@ -80,6 +84,14 @@ export class Renderer {
     camera.apply(ctx);
 
     this.tilemap.draw(ctx, camera);
+    if (this.enableAmbience) {
+      // Eyes sit in the rock, so they belong under everything that stands on
+      // the floor; the mist rolls over the ground but under the actors, which
+      // keeps it from ever hiding something you need to read.
+      this.eyes.update(dt, world, camera);
+      this.eyes.draw(ctx);
+      drawMist(ctx, camera, this.time, world.floorNo || 0);
+    }
     this.drawGroundProps(ctx, world, camera);
     this.drawZones(ctx, world);
     this.drawTelegraphs(ctx, world);

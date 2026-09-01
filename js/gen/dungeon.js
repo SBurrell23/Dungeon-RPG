@@ -110,11 +110,13 @@ export class Dungeon {
  */
 export function generateFloor(seed, floorNo, partySize = 1) {
   const rng = new RNG(`${seed}:floor:${floorNo}`);
+
   const depth = Math.max(0, Math.min(THEMES.length - 1, floorNo - 1));
 
   // Floors grow with depth so later runs feel like a real descent.
   const size = Math.min(148, 76 + floorNo * 6 + (partySize - 1) * 4);
   const d = new Dungeon(size, size);
+  d.floorNo = floorNo;
   d.floor = floorNo;
   d.seed = seed;
   d.theme = THEMES[depth];

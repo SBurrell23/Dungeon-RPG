@@ -142,6 +142,22 @@ tests/
 
 ## Design notes
 
+### Two dungeons, one generator
+
+`js/render/tilesets/` owns how a floor looks; the generator only ever decides
+where rock and floor are. Each tileset exposes one `bake` call and everything
+else - masonry, floors, decor, dressing - lives behind it, so a new look is a
+new module rather than a rewrite and the old one keeps working untouched. The
+two are swapped from Options at any time, mid-run, and the tilemap simply drops
+its baked chunks and repaints.
+
+They are structurally different, which is the point of the seam. `cavern` draws
+rock as a top-down blob - a 47-case autotile of quadrants with a stone rim
+bleeding over the floor. `crypt` is masonry: the art is built as rooms, a
+border around a dark interior with a tall brick face on the south side because
+that is the side you look at, so walls there are drawn per-edge from the solid
+side and the mass behind them is flat dark.
+
 ### Music follows the fight
 
 Two tracks play at once and only one is turned up, so entering a boss chamber is

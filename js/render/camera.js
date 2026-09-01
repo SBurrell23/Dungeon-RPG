@@ -97,6 +97,11 @@ export class Camera {
     };
   }
 
+  /** The visible world rectangle, for anything that wants to scatter over it. */
+  viewRect() {
+    return { x: this.x - this.viewW / 2, y: this.y - this.viewH / 2, w: this.viewW, h: this.viewH };
+  }
+
   isVisible(x, y, margin = 80) {
     return Math.abs(x - this.x) < this.viewW / 2 + margin
       && Math.abs(y - this.y) < this.viewH / 2 + margin;
