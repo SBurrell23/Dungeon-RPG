@@ -8,18 +8,43 @@ const SEAM_BLEED = 0.5;   // px of overlap between chunks, see draw()
 
 /** Tiles of margin around a chunk when building its void-fade mask. */
 const FADE_PAD = 3;
-/** Distance from floor, in tiles, at which the dark starts and finishes. */
-const FADE_START = 1.6;
-const FADE_SPAN = 2.6;
-const VOID_RGB = [16, 12, 14];
+/**
+ * Mask cells per tile.
+ *
+ * The whole point is fuzz finer than a tile: at one cell per tile the edge can
+ * only ever be a smooth ramp between whole tiles, which is the straight line
+ * this exists to break up. Six cells is an 8px feature size at TILE=48 - about
+ * the size of the pixel art's own detail.
+ */
+const FADE_CELLS = 6;
+/** Distance from walkable ground, in tiles, over which the dark closes in. */
+const FADE_START = 0.55;
+const FADE_END = 1.85;
+/** How far the noise can push that boundary either way, in tiles. */
+const FADE_JITTER = 0.55;
+const VOID_RGB = [10, 8, 10];
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+const smoothstep = (t) => t * t * (3 - 2 * t);
 
-/** Stable per-tile noise, so the ragged edge does not crawl between bakes. */
-function tileNoise(x, y) {
+function hash2(x, y) {
   let n = (x * 374761393) ^ (y * 668265263);
   n = (n ^ (n >>> 13)) * 1274126177;
   return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+}
+
+/** Smooth value noise, so the erosion is organic rather than static-looking. */
+function valueNoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = smoothstep(x - xi), yf = smoothstep(y - yi);
+  const a = hash2(xi, yi), b = hash2(xi + 1, yi);
+  const c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
+  return (a + (b - a) * xf) + ((c + (d - c) * xf) - (a + (b - a) * xf)) * yf;
+}
+
+/** Two octaves: a broad wander plus a finer crumble along the edge. */
+function edgeNoise(x, y) {
+  return valueNoise(x * 0.9, y * 0.9) * 0.66 + valueNoise(x * 2.7, y * 2.7) * 0.34;
 }
 
 /**
@@ -192,18 +217,23 @@ export class TileMap {
   }
 
   /**
-   * Soften the boundary between drawn rock and empty dark.
+   * Eat the straight outer edge of the rock away with black.
    *
-   * `FADE_PAD` tiles of margin on each side keep the gradient continuous across
-   * chunk seams; the canvas clips whatever falls outside.
+   * The tileset draws its rock in whole tiles, so the outside of a wall is a
+   * clean tile-aligned line against the void. This paints void colour over it
+   * with a threshold that follows distance from walkable ground and is pushed
+   * about by noise, at six cells to the tile - fine enough to crumble the edge
+   * rather than merely ramp between tiles. Upscaled with smoothing, so the
+   * result is soft rather than a second, smaller grid.
    */
   drawVoidFade(ctx, x0, y0) {
     const d = this.dungeon;
     const dist = this.voidDist;
     if (!dist) return;
 
-    const n = CHUNK + FADE_PAD * 2;
-    if (!this.fadeCanvas) {
+    const tiles = CHUNK + FADE_PAD * 2;
+    const n = tiles * FADE_CELLS;
+    if (!this.fadeCanvas || this.fadeCanvas.width !== n) {
       this.fadeCanvas = document.createElement('canvas');
       this.fadeCanvas.width = n;
       this.fadeCanvas.height = n;
@@ -213,21 +243,23 @@ export class TileMap {
     const img = fc.createImageData(n, n);
     const px = img.data;
 
+    // Distance in tiles at any point, bilinear over the per-tile field, so the
+    // threshold moves continuously instead of stepping at tile borders.
+    const distAt = (tx, ty) => {
+      const fx = Math.floor(tx), fy = Math.floor(ty);
+      const ax = tx - fx, ay = ty - fy;
+      const at = (X, Y) => (d.inBounds(X, Y) ? dist[d.idx(X, Y)] : 12);
+      const a = at(fx, fy), b = at(fx + 1, fy), c = at(fx, fy + 1), e = at(fx + 1, fy + 1);
+      return (a + (b - a) * ax) + ((c + (e - c) * ax) - (a + (b - a) * ax)) * ay;
+    };
+
     for (let iy = 0; iy < n; iy++) {
       for (let ix = 0; ix < n; ix++) {
-        const tx = x0 - FADE_PAD + ix;
-        const ty = y0 - FADE_PAD + iy;
-        let a = 0;
-        if (d.inBounds(tx, ty)) {
-          const dd = dist[d.idx(tx, ty)];
-          // Nothing over the floor or the first ring of rock; then ramp up.
-          a = clamp01((dd - FADE_START) / FADE_SPAN);
-          // A little per-tile jitter so the edge is ragged rather than a
-          // clean contour following the room's shape.
-          if (a > 0 && a < 1) a = clamp01(a + (tileNoise(tx, ty) - 0.5) * 0.55);
-        } else {
-          a = 1;
-        }
+        // Tile-space position of this cell's centre.
+        const tx = x0 - FADE_PAD + (ix + 0.5) / FADE_CELLS;
+        const ty = y0 - FADE_PAD + (iy + 0.5) / FADE_CELLS;
+        const dd = distAt(tx, ty) + (edgeNoise(tx, ty) - 0.5) * 2 * FADE_JITTER;
+        const a = smoothstep(clamp01((dd - FADE_START) / (FADE_END - FADE_START)));
         const o = (iy * n + ix) * 4;
         px[o] = VOID_RGB[0]; px[o + 1] = VOID_RGB[1]; px[o + 2] = VOID_RGB[2];
         px[o + 3] = Math.round(a * 255);
@@ -238,7 +270,8 @@ export class TileMap {
     ctx.save();
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(this.fadeCanvas, -FADE_PAD * TILE, -FADE_PAD * TILE, n * TILE, n * TILE);
+    ctx.drawImage(this.fadeCanvas,
+      -FADE_PAD * TILE, -FADE_PAD * TILE, tiles * TILE, tiles * TILE);
     ctx.restore();
     ctx.imageSmoothingEnabled = false;
   }
