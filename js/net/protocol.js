@@ -49,26 +49,34 @@ export function buildSnapshot(world) {
   const players = world.players.map((p) => [
     p.id, Math.round(p.x), Math.round(p.y), +p.facing.toFixed(2),
     Math.round(p.hp), Math.round(p.mp), p.anim.key, +p.anim.t.toFixed(2),
-    p.level, (p.downed ? 1 : 0) | (p.dead ? 2 : 0), Math.round(p.shield),
-    Math.round(p.stats.maxHp), Math.round(p.stats.maxMp),
+    p.level, (p.downed ? 1 : 0) | (p.dead ? 2 : 0) | (p.anim.loop ? 4 : 0), Math.round(p.shield),
+    Math.round(p.stats.maxHp), Math.round(p.stats.maxMp), p.anim.fps || 12,
   ]);
 
   const anchors = world.players.filter((p) => !p.dead);
   const relevant = [];
   for (const m of world.monsters) {
     if (m.expired) continue;
-    let near = anchors.length === 0;
+    let best = anchors.length === 0 ? 0 : Infinity;
     for (const a of anchors) {
-      if (dist2(m.x, m.y, a.x, a.y) < RELEVANCE * RELEVANCE) { near = true; break; }
+      const d = dist2(m.x, m.y, a.x, a.y);
+      if (d < best) best = d;
     }
-    if (near) relevant.push(m);
+    if (best < RELEVANCE * RELEVANCE) relevant.push([best, m]);
   }
-  relevant.length = Math.min(relevant.length, MAX_MOBS);
+  // Nearest first, so that when the cap bites it drops the monsters furthest
+  // from anybody rather than whichever happened to spawn last.
+  if (relevant.length > MAX_MOBS) {
+    relevant.sort((a, b) => a[0] - b[0]);
+    relevant.length = MAX_MOBS;
+  }
 
-  const mobs = relevant.map((m) => [
+  const mobs = relevant.map(([, m]) => [
     m.id, Math.round(m.x), Math.round(m.y), +m.facing.toFixed(2),
     Math.round(m.hp), m.anim.key, +m.anim.t.toFixed(2),
-    (m.dead ? 1 : 0) | (m.enraged ? 2 : 0) | (m.buffs.some((b) => b.id === 'stun') ? 4 : 0),
+    (m.dead ? 1 : 0) | (m.enraged ? 2 : 0) | (m.buffs.some((b) => b.id === 'stun') ? 4 : 0)
+      | (m.anim.loop ? 8 : 0),
+    m.anim.fps || 12,
   ]);
 
   const projectiles = world.projectiles.map((pr) => [
@@ -80,13 +88,21 @@ export function buildSnapshot(world) {
 
   const zones = world.zones.map((z) => [Math.round(z.x), Math.round(z.y), Math.round(z.radius), z.color, +(z.duration - z.elapsed).toFixed(1)]);
 
+  // The wind-up markers for slams and charges. These only ever existed on the
+  // host, so everyone but the host was dodging attacks with no warning.
+  const telegraphs = world.telegraphs.map((t) => [
+    t.kind === 'line' ? 1 : 0, Math.round(t.x), Math.round(t.y),
+    Math.round(t.kind === 'line' ? t.length : t.radius),
+    +(t.angle || 0).toFixed(2), +t.t.toFixed(2), +t.life.toFixed(2), t.color || 0,
+  ]);
+
   // Ids the host has retired since the last snapshot.
   const gone = world.removedIds.length ? world.removedIds.slice() : undefined;
   world.removedIds.length = 0;
 
   return {
     t: world.time,
-    players, mobs, projectiles, pickups, zones, gone,
+    players, mobs, projectiles, pickups, zones, telegraphs, gone,
     descent: [world.descent.playerId || 0, +world.descent.progress.toFixed(2), +world.descent.flash.toFixed(2)],
     shake: Math.round(world.shakeAmount),
   };
@@ -117,6 +133,10 @@ export function applySnapshot(world, snap) {
     p.mp = row[5];
     p.anim.key = row[6];
     p.anim.t = row[7];
+    // Without the loop flag the renderer wraps every animation, so a dead body
+    // replayed its death over and over instead of resting on the last frame.
+    p.anim.loop = !!(row[9] & 4);
+    p.anim.fps = row[13] || 12;
     p.level = row[8];
     p.downed = !!(row[9] & 1);
     p.dead = !!(row[9] & 2);
@@ -149,6 +169,8 @@ export function applySnapshot(world, snap) {
     m.dead = !!(row[7] & 1);
     m.enraged = !!(row[7] & 2);
     m.stunned = !!(row[7] & 4);
+    m.anim.loop = !!(row[7] & 8);
+    m.anim.fps = row[8] || 12;
     m.netSeen = true;
   }
 
@@ -169,6 +191,15 @@ export function applySnapshot(world, snap) {
   world.zones = snap.zones.map((row) => ({
     x: row[0], y: row[1], radius: row[2], color: row[3],
     duration: Math.max(0.1, row[4]), elapsed: 0,
+  }));
+
+  world.telegraphs = (snap.telegraphs || []).map((row) => ({
+    kind: row[0] ? 'line' : 'circle',
+    x: row[1], y: row[2],
+    radius: row[0] ? 0 : row[3],
+    length: row[0] ? row[3] : 0,
+    angle: row[4], t: row[5], life: Math.max(0.05, row[6]),
+    color: row[7] || undefined,
   }));
 }
 

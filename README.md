@@ -128,6 +128,7 @@ js/
     net.js            PeerJS transport (star topology, host at the centre)
     protocol.js       message types, snapshot encoding, floor manifests
     sync.js           prediction, reconciliation, host-side intent bookkeeping
+    events.js         applying the host's event stream to a client world
 
 tests/
   index.html          test runner page
@@ -222,8 +223,15 @@ per-player detail and waiting for the next inventory action to carry them left t
 bar frozen. Inventory changes are request/response: the client asks, the host applies,
 the host returns the authoritative character.
 
-Snapshots only include monsters within 1500px of a player, capped at 90, and carry the
-ids of any the host has retired so a corpse does not linger on every client.
+Snapshots only include monsters within 1500px of a player, nearest first and capped at
+90, and carry the ids of any the host has retired so a corpse does not linger on every
+client. They also carry each animation's `loop` flag - without it the renderer wraps
+every animation and a dead body replays its death forever - and the attack wind-up
+telegraphs, which used to exist only on the host, so everyone else was dodging attacks
+that gave them no tell.
+
+Monsters born mid-floor - a boss's summoned adds, a slime's children - are announced on
+the event stream, because the floor manifest went out long before they existed.
 
 An intent separates *held* inputs (movement, aim, the attack button) from *edge* flags
 (dash, ability slots, use-potion, interact). Held inputs come from the latest packet, so

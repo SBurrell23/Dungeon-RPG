@@ -3,6 +3,9 @@ import { World } from '../js/game/world.js';
 import { acceptInput, consumeIntent, neutralIntent, INPUT_TIMEOUT } from '../js/net/sync.js';
 import { applySnapshot, buildSnapshot, buildFloorManifest, applyFloorManifest } from '../js/net/protocol.js';
 import { ABILITIES } from '../js/game/abilities.js';
+import { setAnim } from '../js/game/entities.js';
+
+const setAnimDeath = (m) => setAnim(m, 'death', { loop: false, fps: 11, lock: 999 });
 
 /**
  * Regression tests for the four-player session.
@@ -232,6 +235,129 @@ test('a client that goes quiet stops acting', () => {
   if (cleared < 0) throw new Error('held input never released after the client went quiet');
   if (cleared > INPUT_TIMEOUT + 0.2) throw new Error(`took ${cleared}s to release`);
   return { releasedAfterSeconds: +cleared.toFixed(2), timeout: INPUT_TIMEOUT };
+});
+
+test('a monster born mid-floor reaches the clients', () => {
+  // Symptom: "some players see bats that don't exist for other players". A
+  // boss summons bats and a slime splits into children, both long after the
+  // floor manifest went out, so only the host had them.
+  const sim = new NetSim({ seed: 'summon', clients: 2, floor: 2, latency: 0.05 });
+  const summoner = sim.host.monsters[0];
+  sim.host.summonMinion(summoner, 'bat', summoner.x + 40, summoner.y);
+  const born = sim.host.monsters[sim.host.monsters.length - 1];
+  if (born.monsterId !== 'bat') throw new Error('summon did not happen; test proves nothing');
+
+  sim.run(60, () => idle());
+
+  for (const c of sim.clients) {
+    const m = c.world.byId.get(born.id);
+    if (!m) throw new Error('client never learned about the summoned bat');
+    if (m.monsterId !== 'bat') throw new Error(`client built a ${m.monsterId}`);
+    if (Math.round(m.stats.maxHp) !== Math.round(born.stats.maxHp)) {
+      throw new Error(`hp mismatch: ${m.stats.maxHp} vs ${born.stats.maxHp}`);
+    }
+  }
+  return { id: born.id, kind: born.monsterId, onClients: sim.clients.length };
+});
+
+test('a dead body rests on its last frame instead of looping', () => {
+  // Symptom: on clients, corpses replayed their death animation forever. The
+  // snapshot carried anim.key and anim.t but never anim.loop, and the renderer
+  // uses loop to decide between wrapping and clamping to the last frame.
+  const sim = new NetSim({ seed: 'corpse', clients: 1, floor: 1, latency: 0 });
+  const victim = sim.host.monsters.find((m) => !m.dead);
+  // Put it next to the party so it stays inside the snapshot's relevance range.
+  const p = sim.host.players[0];
+  const spot = sim.host.findStandableSpot(p.x + 40, p.y, victim, 6);
+  if (spot) { victim.x = spot.x; victim.y = spot.y; }
+  sim.host.killActor ? sim.host.killActor(victim) : null;
+  victim.hp = 0;
+  sim.run(30, () => idle());
+  // Whatever route the host took, it should be dead and non-looping by now.
+  if (!victim.dead) { victim.dead = true; setAnimDeath(victim); sim.run(20, () => idle()); }
+  const cm = sim.clients[0].world.byId.get(victim.id);
+  if (!cm) throw new Error('client lost the monster');
+  if (cm.anim.key !== victim.anim.key) throw new Error(`anim key ${cm.anim.key} vs host ${victim.anim.key}`);
+  if (cm.anim.loop !== victim.anim.loop) {
+    throw new Error(`loop flag ${cm.anim.loop} vs host ${victim.anim.loop} - corpse will loop`);
+  }
+  return { anim: cm.anim.key, loop: cm.anim.loop, hostLoop: victim.anim.loop };
+});
+
+test('attack wind-up markers reach the clients', () => {
+  // Symptom: only the host saw the red charge and slam warnings, so everyone
+  // else was dodging attacks that gave them no tell.
+  const sim = new NetSim({ seed: 'telegraph', clients: 2, floor: 3, latency: 0.05 });
+  const p = sim.host.players[0];
+  sim.host.telegraphLine(p.x, p.y, 0.5, 400, 0.9);
+  sim.host.telegraphRing(p.x + 60, p.y, 120, 0.8, '#ff5533');
+  sim.run(12, () => idle());
+  for (const c of sim.clients) {
+    if (c.world.telegraphs.length !== 2) {
+      throw new Error(`client has ${c.world.telegraphs.length} telegraphs, expected 2`);
+    }
+    const line = c.world.telegraphs.find((t) => t.kind === 'line');
+    const ring = c.world.telegraphs.find((t) => t.kind === 'circle');
+    if (!line || !ring) throw new Error('telegraph shapes did not survive the wire');
+    if (Math.abs(line.length - 400) > 1) throw new Error(`line length ${line.length}`);
+    if (Math.abs(ring.radius - 120) > 1) throw new Error(`ring radius ${ring.radius}`);
+  }
+  return sim.clients.map((c) => c.world.telegraphs.map((t) => `${t.kind} ${t.radius || t.length}`));
+});
+
+test('a taunt pulls monsters that are already fighting someone else', () => {
+  // Symptom: Shield Wall did nothing mid-fight. acquireTarget returned early
+  // whenever a monster already had a target, before the taunt was considered.
+  const sim = new NetSim({ seed: 'taunt', clients: 3, floor: 2, latency: 0 });
+  const tank = sim.host.players[0];
+  const victim = sim.host.players[2];
+  // Everything is busy chewing on someone who is not the tank.
+  const pack = [];
+  let n = 0;
+  for (const m of sim.host.monsters) {
+    if (n >= 10 || m.dead) continue;
+    const a = n * 0.7;
+    const spot = sim.host.findStandableSpot(victim.x + Math.cos(a) * 60, victim.y + Math.sin(a) * 60, m, 6);
+    if (!spot) continue;
+    m.x = spot.x; m.y = spot.y; m.target = victim.id;
+    pack.push(m); n++;
+  }
+  if (pack.length < 4) throw new Error('could not stage a pack; test proves nothing');
+  // The tank steps in and braces.
+  tank.x = victim.x + 30; tank.y = victim.y + 30;
+  sim.host.applyBuff(tank, {
+    id: 'shieldWall', name: 'Shield Wall', duration: 8,
+    damageTaken: 0.55, taunt: true, mods: { armor: 40 },
+  });
+  sim.run(60, () => idle());
+  const pulled = pack.filter((m) => m.target === tank.id).length;
+  if (pulled < pack.length) {
+    throw new Error(`taunt pulled only ${pulled} of ${pack.length} monsters`);
+  }
+  return { pack: pack.length, pulledToTank: pulled };
+});
+
+test('the relevance cap drops the furthest monsters, not the newest', () => {
+  const sim = new NetSim({ seed: 'cap', clients: 1, floor: 8, latency: 0 });
+  const p = sim.host.players[0];
+  // Park more monsters than the cap around one player.
+  let n = 0;
+  const near = [];
+  for (const m of sim.host.monsters) {
+    if (n >= 120) break;
+    m.x = p.x + (n % 12) * 20;
+    m.y = p.y + Math.floor(n / 12) * 20;
+    near.push(m); n++;
+  }
+  const snap = buildSnapshot(sim.host);
+  const sent = new Set(snap.mobs.map((r) => r[0]));
+  const dist = (m) => Math.hypot(m.x - p.x, m.y - p.y);
+  const sentMax = Math.max(...near.filter((m) => sent.has(m.id)).map(dist));
+  const droppedMin = Math.min(...near.filter((m) => !sent.has(m.id)).map(dist), Infinity);
+  if (droppedMin < sentMax) {
+    throw new Error(`dropped a monster at ${Math.round(droppedMin)}px while sending one at ${Math.round(sentMax)}px`);
+  }
+  return { staged: near.length, sent: sent.size, furthestSent: Math.round(sentMax) };
 });
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import { randomSeedString } from './core/rng.js';
 import { clamp, dist2 } from './core/util.js';
 
 import { World, FLOOR_COUNT } from './game/world.js';
+import { applyRemoteEvent } from './net/events.js';
 import { getClass } from './game/classes.js';
 import { recomputeStats, xpToNext } from './game/stats.js';
 import { getAbility, ABILITIES } from './game/abilities.js';
@@ -928,10 +929,15 @@ net.on(MSG.MINE, (d) => {
   applyPersonal(p, d);
 });
 
+/** The one bit of remote-event handling that is a UI concern. */
+function onStockChanged() {
+  if (isScreenOpen('screen-shop')) game.panels.refresh();
+}
+
 net.on(MSG.EVENT, (list) => {
   const world = game.world;
   if (!world) return;
-  for (const e of list) applyRemoteEvent(world, e);
+  for (const e of list) applyRemoteEvent(world, e, onStockChanged);
 });
 
 net.on(MSG.ACT, (d, peerId) => {
@@ -978,55 +984,6 @@ net.on(MSG.KICK, (d) => {
   leaveToMenu();
 });
 
-function applyRemoteEvent(world, e) {
-  switch (e.t) {
-    case 'dmg': {
-      const target = world.byId.get(e.id);
-      if (!target) break;
-      target.hitFlash = 0.16;
-      const color = e.c ? '#ffd23f' : target.kind === 'player' ? '#ff6b6b' : '#ffffff';
-      world.floatText(target.x, target.y - target.radius - 10, e.a + (e.c ? '!' : ''), color, e.c ? 1.4 : 1);
-      world.spawnFx('hit', target.x, target.y, { color: e.ty === 'phys' ? '#ff5a5a' : '#c08aff', radius: 10, life: 0.18 });
-      break;
-    }
-    case 'txt':
-      world.floatText(e.x, e.y, e.s, e.c, e.sc || 1);
-      break;
-    case 'fx':
-      world.spawnFx(e.k, e.x, e.y, e.o || {});
-      break;
-    case 'sfx':
-      world.sfxAt(e.x, e.y, e.n);
-      break;
-    case 'log':
-      world.pushLog(e.s, e.c);
-      break;
-    case 'shake':
-      world.shake(e.a);
-      break;
-    case 'unlock':
-      break;
-    case 'chest': {
-      const prop = world.dungeon.props.find((p) => p.type === 'chest' && p.x === e.x && p.y === e.y);
-      if (prop) prop.opened = true;
-      break;
-    }
-    case 'shrine': {
-      const prop = world.dungeon.props.find((p) => p.type === 'shrine' && p.x === e.x && p.y === e.y);
-      if (prop) prop.used = true;
-      break;
-    }
-    case 'stock': {
-      const npc = world.npcs.find((n) => n.id === e.npc);
-      const entry = npc?.stock[e.i];
-      if (entry) entry.qty--;
-      if (isScreenOpen('screen-shop')) game.panels.refresh();
-      break;
-    }
-    default:
-      break;
-  }
-}
 
 function sendSelf(p) {
   if (!game.isOnline || !net.isHost) return;

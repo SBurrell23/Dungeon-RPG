@@ -2,6 +2,7 @@ import { World } from '../js/game/world.js';
 import { CLASS_ORDER } from '../js/game/classes.js';
 import { mergeIntents } from '../js/core/input.js';
 import { acceptInput, consumeIntent, predictLocal, reconcile } from '../js/net/sync.js';
+import { applyRemoteEvent } from '../js/net/events.js';
 import {
   SNAPSHOT_HZ, INPUT_HZ, PERSONAL_HZ,
   buildSnapshot, applySnapshot,
@@ -49,6 +50,7 @@ export class NetSim {
 
     // --- host world -------------------------------------------------------
     this.host = new World({ seed, isHost: true });
+    this.host.netActive = true;      // so the host emits the event stream
     for (const r of roster) {
       this.host.addPlayer({ peerId: r.peerId, name: r.peerId, classId: r.classId, local: r.peerId === HOST_ID });
     }
@@ -107,6 +109,7 @@ export class NetSim {
       }
       const c = this.clients[target];
       if (type === 'snap') applySnapshot(c.world, payload);
+      else if (type === 'event') { for (const e of payload) applyRemoteEvent(c.world, e); }
       else if (type === 'mine') {
         const p = c.world.byId.get(payload.id);
         if (p) applyPersonal(p, payload);
@@ -154,7 +157,11 @@ export class NetSim {
       const snap = buildSnapshot(this.host);
       this.clients.forEach((_, i) => this._post(i, 'snap', snap));
       this.stats.snapshots++;
-      this.host.drainEvents();
+      const events = this.host.drainEvents();
+      if (events.length) {
+        this.clients.forEach((_, i) => this._post(i, 'event', events));
+        this.stats.events = (this.stats.events || 0) + events.length;
+      }
     }
     this.personalAcc += dt;
     if (this.personalAcc >= 1 / PERSONAL_HZ) {

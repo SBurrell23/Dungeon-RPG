@@ -288,7 +288,7 @@ export class World {
         m.stats.maxHp = Math.round(m.stats.maxHp * partyScale);
         m.hp = m.stats.maxHp;
       }
-      this.addMonster(m);
+      this.addMonster(m, false);   // the floor manifest already lists these
     }
   }
 
@@ -324,9 +324,29 @@ export class World {
     return new RNG(`${this.seed}:shop:${this.floorNo}`);
   }
 
-  addMonster(m) {
+  /**
+   * @param {object} m
+   * @param {boolean} [announce] false while populating a floor, where the
+   *   manifest already describes every monster and per-monster events would be
+   *   a few hundred redundant messages.
+   */
+  addMonster(m, announce = true) {
     this.monsters.push(m);
     this.byId.set(m.id, m);
+    // Splits and summons are born after the floor manifest went out, so without
+    // this a client never learns they exist: a boss's bats and a slime's
+    // children would hit people who could not see them, and the snapshot rows
+    // for them would be dropped for want of a matching id.
+    if (announce && this.isHost && this.netActive) {
+      this.emitEvent({
+        t: 'spawn',
+        id: m.id, k: m.monsterId, lv: m.level,
+        e: m.elite ? 1 : 0, b: m.boss || 0,
+        x: Math.round(m.x), y: Math.round(m.y),
+        hp: Math.round(m.stats.maxHp), r: m.roomId ?? -1, n: m.name,
+        sc: +(m.scale || 1).toFixed(2), rad: Math.round(m.radius),
+      });
+    }
     return m;
   }
 
@@ -404,6 +424,9 @@ export class World {
       for (const m of this.monsters) advanceAnim(m, dt);
       this.interpolateNet(dt);
       this.updateProjectilesVisual(dt);
+      // Telegraphs are replaced wholesale by each snapshot, but they have to
+      // keep filling in between them or the warning would visibly stutter.
+      for (const t of this.telegraphs) t.t += dt;
     }
 
     for (const n of this.npcs) advanceAnim(n, dt);

@@ -142,6 +142,21 @@ export function updateMonster(world, m, dt) {
 }
 
 function acquireTarget(world, m) {
+  // A taunt is checked before anything else, including whether this monster is
+  // already busy. Weighting the distance further down only helped when a
+  // monster happened to be re-picking a target, so a tank could pop Shield Wall
+  // in the middle of a fight and every monster already swinging at the wizard
+  // would carry on ignoring them - which is the one moment a taunt is for.
+  let taunter = null, taunterD = Infinity;
+  const pull = m.aggroRange * 1.8;
+  for (const p of world.players) {
+    if (p.dead || p.downed) continue;
+    if (!p.buffs.some((b) => b.taunt)) continue;
+    const dd = dist2(m.x, m.y, p.x, p.y);
+    if (dd < taunterD && dd < pull * pull) { taunterD = dd; taunter = p; }
+  }
+  if (taunter) { m.target = taunter.id; return; }
+
   const cur = m.target != null ? world.actorById(m.target) : null;
   if (cur && !cur.dead && !cur.downed) {
     const dd = dist(m.x, m.y, cur.x, cur.y);
@@ -153,10 +168,7 @@ function acquireTarget(world, m) {
   for (const p of world.players) {
     if (p.dead || p.downed) continue;
     const dd = dist2(m.x, m.y, p.x, p.y);
-    // Shield Wall and War Cry pull attention, which is what makes a tank a tank.
-    const taunted = p.buffs.some((b) => b.taunt);
-    const weighted = taunted ? dd * 0.3 : dd;
-    if (weighted < bestD) { bestD = weighted; best = p; }
+    if (dd < bestD) { bestD = dd; best = p; }
   }
   m.target = best ? best.id : null;
 }
