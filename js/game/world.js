@@ -59,7 +59,7 @@ const CODEX_RANGE = 310;
  * Traps that keep working. A bear trap snaps once and is finished; everything
  * else is a hazard to route around for the rest of the run.
  */
-const PERSISTENT_TRAPS = new Set(['fire', 'spike', 'pit', 'poison', 'squisher']);
+const PERSISTENT_TRAPS = new Set(['fire', 'spike', 'pit', 'squisher']);
 
 /**
  * How long one full cycle takes, in seconds, for the traps that run on a clock.
@@ -1629,7 +1629,11 @@ export class World {
       for (const p of players) {
         if (dist2(cx, cy, p.x, p.y) < TRAP_REVEAL_RANGE * TRAP_REVEAL_RANGE) { near = true; break; }
       }
-      const target = near && !prop.spent ? 1 : 0;
+      // A sprung bear trap is gone; a spent gas vent stays as dead grey
+      // machinery, so you can tell the ones you have already emptied from the
+      // ones still holding a pocket of rot.
+      const keepVisible = prop.kind === 'poison' || !prop.spent;
+      const target = near && keepVisible ? 1 : 0;
       const v = prop.vis ?? 0;
       prop.vis = v + clamp(target - v, -dt * 3, dt * 4);
       if (near && !prop.spent) this.discover('trap', prop.kind);

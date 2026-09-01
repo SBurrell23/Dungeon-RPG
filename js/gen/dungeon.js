@@ -1106,10 +1106,35 @@ const PIT_CLUSTER = [3, 7];
  * rock. Requiring all four orthogonal neighbours to be floor is the only test
  * that holds for every wall configuration.
  */
-function trapGround(d, x, y) {
+function trapGround(d, x, y, shadow) {
+  if (shadow && shadow.has(y * d.w + x)) return false;
   return d.isFloor(x, y)
     && d.isFloor(x - 1, y) && d.isFloor(x + 1, y)
     && d.isFloor(x, y - 1) && d.isFloor(x, y + 1);
+}
+
+/**
+ * Tiles that a piece of decor is drawn over.
+ *
+ * Decor reserves only the tile it is anchored to, but the art is bottom-aligned
+ * and centred, so a tall boulder or a bank of wall art covers the tiles above
+ * and beside it as well. A trap laid on one of those is drawn underneath the
+ * rock, which is what "spawning on wall art" looks like.
+ */
+function decorShadow(d) {
+  const out = new Set();
+  for (const item of d.decor) {
+    const place = decorPlacement(item.kind, item.x, item.y);
+    if (!place) continue;
+    const x0 = Math.floor(place.dx / TILE);
+    const y0 = Math.floor(place.dy / TILE);
+    const x1 = Math.floor((place.dx + place.sw - 1) / TILE);
+    const y1 = Math.floor((place.dy + place.sh - 1) / TILE);
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) out.add(y * d.w + x);
+    }
+  }
+  return out;
 }
 
 /**
@@ -1149,6 +1174,7 @@ function corridorSpan(d, x, y) {
 }
 
 function placeTraps(rng, d, floorNo, freeTile, take) {
+  const shadow = decorShadow(d);
   const density = 0.0011 + floorNo * 0.0006;
   const target = Math.floor(d.w * d.h * density);
   const pool = TRAP_KINDS.filter((k) => floorNo >= k.from);
@@ -1158,7 +1184,7 @@ function placeTraps(rng, d, floorNo, freeTile, take) {
   const spots = [];
   for (let y = 3; y < d.h - 3; y++) {
     for (let x = 3; x < d.w - 3; x++) {
-      if (!freeTile(x, y) || !trapGround(d, x, y)) continue;
+      if (!freeTile(x, y) || !trapGround(d, x, y, shadow)) continue;
       if (Math.hypot(x - d.entrance.x, y - d.entrance.y) < 8) continue;
       const room = d.roomAt(x, y);
       if (room && (room.kind === ROOM_KIND.SHOP || room.kind === ROOM_KIND.ENTRANCE)) continue;
@@ -1194,7 +1220,7 @@ function placeTraps(rng, d, floorNo, freeTile, take) {
       let made = 0;
       while (frontier.length && made < want) {
         const [cx, cy] = frontier.splice(rng.int(0, frontier.length - 1), 1)[0];
-        if (!freeTile(cx, cy) || !trapGround(d, cx, cy)) continue;
+        if (!freeTile(cx, cy) || !trapGround(d, cx, cy, shadow)) continue;
         add('pit', cx, cy);
         made++; placed++;
         for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) frontier.push([cx + ax, cy + ay]);
@@ -1249,6 +1275,14 @@ function placeTraps(rng, d, floorNo, freeTile, take) {
         if (Math.hypot(x - d.entrance.x, y - d.entrance.y) < 10) continue;
         const span = corridorSpan(d, x, y);
         if (!span) continue;
+        // Rams should not be drawn through a boulder either.
+        let clear = true;
+        for (let i = 0; i < span.span; i++) {
+          const tx = span.axis === 'v' ? span.x : span.x + i;
+          const ty = span.axis === 'v' ? span.y + i : span.y;
+          if (shadow.has(ty * d.w + tx)) { clear = false; break; }
+        }
+        if (!clear) continue;
         anchors.set(`${span.x},${span.y}`, span);
       }
       if (anchors.size) eligible.push([...anchors.values()]);
@@ -1288,7 +1322,7 @@ function placeTraps(rng, d, floorNo, freeTile, take) {
   // Trapped rooms get a dense cluster - a recognisable hazard, not random noise.
   for (const room of d.rooms) {
     if (room.kind !== 'trapped') continue;
-    const roomSpots = room.tiles.filter(([x, y]) => freeTile(x, y) && trapGround(d, x, y));
+    const roomSpots = room.tiles.filter(([x, y]) => freeTile(x, y) && trapGround(d, x, y, shadow));
     rng.shuffle(roomSpots);
     // Dense enough to be the room's identity, not so dense that crossing it is
     // arithmetic rather than a decision.

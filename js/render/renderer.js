@@ -21,12 +21,13 @@ const CHEST_SIZE = 24;
 const TRAP_OPACITY = 0.72;
 
 /**
- * How far back into the floor the spike beds sit.
+ * How opaque the spike beds are.
  *
- * They cover a whole tile and come in clusters, so at full strength they paved
- * over the ground; this keeps them legible without taking the floor over.
+ * They cover a whole tile and come in clusters, so at any real strength they
+ * pave over the floor. Deliberately a whisper: the bed is meant to be a hint in
+ * the stone rather than a feature of it.
  */
-const PIT_SPIKE_ALPHA = 0.45;
+const PIT_SPIKE_ALPHA = 0.05;
 
 /** Seconds of the descent ritual; mirrors DESCENT_TIME in game/world.js. */
 const DESCENT_SECONDS = 10;
@@ -309,7 +310,9 @@ export class Renderer {
       // and full-size looks like spikes set into the stone. Mirrored on a hash
       // of the tile so a bed is not one sprite stamped in a grid.
       ctx.save();
-      ctx.globalAlpha *= PIT_SPIKE_ALPHA;
+      // Set rather than multiplied: this is the final opacity, not a fraction
+      // of the opacity the other traps share.
+      ctx.globalAlpha = clamp(p.vis ?? 1, 0, 1) * PIT_SPIKE_ALPHA;
       ctx.translate(px + TILE / 2, py + TILE / 2);
       if (((p.x * 73856093) ^ (p.y * 19349663)) & 2) ctx.scale(-1, 1);
       ctx.drawImage(img, frame * def.fw, 0, def.fw, def.fh, -TILE / 2, -TILE / 2, TILE, TILE);
@@ -370,19 +373,23 @@ export class Renderer {
     const y0 = Math.round(py) + 6;
     const S = 36;
     const armed = p.armed && !p.spent;
+    // Once the pocket beneath it is empty the vent is dead metal: the green
+    // goes out of it entirely, so a spent one is obvious at a glance.
+    const shell = armed ? ['#2b2a22', '#4a5238', '#5d6844', '#33391f', '#1d2313']
+      : ['#232323', '#3d3d3d', '#4c4c4c', '#2a2a2a', '#171717'];
 
     // Flat blocks, no gradients - it has to sit beside the pixel art, not on it.
-    ctx.fillStyle = '#2b2a22';
+    ctx.fillStyle = shell[0];
     ctx.fillRect(x0, y0, S, S);
-    ctx.fillStyle = '#4a5238';
+    ctx.fillStyle = shell[1];
     ctx.fillRect(x0 + 2, y0 + 2, S - 4, S - 4);
-    ctx.fillStyle = '#5d6844';
+    ctx.fillStyle = shell[2];
     ctx.fillRect(x0 + 2, y0 + 2, S - 4, 3);
-    ctx.fillStyle = '#33391f';
+    ctx.fillStyle = shell[3];
     ctx.fillRect(x0 + 2, y0 + S - 5, S - 4, 3);
 
     // A 4x4 grid of bores, all on whole pixels.
-    ctx.fillStyle = '#1d2313';
+    ctx.fillStyle = shell[4];
     for (let r = 0; r < 4; r++) {
       for (let c = 0; c < 4; c++) ctx.fillRect(x0 + 5 + c * 8, y0 + 6 + r * 7, 5, 4);
     }
@@ -419,20 +426,52 @@ export class Renderer {
   drawZones(ctx, world) {
     for (const z of world.zones) {
       const life = 1 - z.elapsed / z.duration;
+
+      // A body of gas, not a tint. Additive alone washed out over a lit floor,
+      // so this lays down an opaque core first and lights it afterwards.
       ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.16 + 0.1 * Math.sin(this.time * 4) * life;
-      const g = ctx.createRadialGradient(z.x, z.y, z.radius * 0.15, z.x, z.y, z.radius);
-      g.addColorStop(0, z.color);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = g;
+      ctx.globalAlpha = 0.34 * life;
+      const solid = ctx.createRadialGradient(z.x, z.y, z.radius * 0.1, z.x, z.y, z.radius);
+      solid.addColorStop(0, z.color);
+      solid.addColorStop(0.65, z.color);
+      solid.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = solid;
       ctx.beginPath();
       ctx.arc(z.x, z.y, z.radius, 0, TAU);
       ctx.fill();
       ctx.restore();
 
       ctx.save();
-      ctx.globalAlpha = 0.35 * life;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = (0.22 + 0.12 * Math.sin(this.time * 4)) * life;
+      const glow = ctx.createRadialGradient(z.x, z.y, z.radius * 0.15, z.x, z.y, z.radius);
+      glow.addColorStop(0, z.color);
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(z.x, z.y, z.radius, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+
+      // Blocky puffs rolling through it, so it reads as gas rather than a disc.
+      ctx.save();
+      ctx.globalAlpha = 0.4 * life;
+      ctx.fillStyle = z.color;
+      for (let i = 0; i < 10; i++) {
+        const seed = z.x * 0.31 + z.y * 0.17 + i * 2.3;
+        const t = (this.time * 0.45 + i / 10 + seed) % 1;
+        const a = seed * 5 + t * 1.4;
+        const r = z.radius * (0.25 + t * 0.7);
+        const s = Math.round(z.radius * (0.28 - t * 0.14));
+        if (s <= 1) continue;
+        ctx.globalAlpha = (1 - t) * 0.38 * life;
+        ctx.fillRect(Math.round(z.x + Math.cos(a) * r - s / 2),
+          Math.round(z.y + Math.sin(a) * r * 0.75 - s / 2), s, Math.round(s * 0.7));
+      }
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.5 * life;
       ctx.strokeStyle = z.color;
       ctx.lineWidth = 2;
       ctx.beginPath();

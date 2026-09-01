@@ -286,8 +286,8 @@ export const TRAP_INFO = {
     flavour: 'A burner fed from below. Harmless between breaths and lethal at full height, and the burning outlasts the flame.',
   },
   poison: {
-    name: 'Gas Vent', color: '#96e072', persistent: true,
-    flavour: 'A perforated cap over a pocket of rot. Leaves a lingering cloud and keeps venting; an antidote clears the worst.',
+    name: 'Gas Vent', color: '#96e072', persistent: false,
+    flavour: 'A perforated cap over a pocket of rot. It empties that pocket in one billowing cloud and is dead metal afterwards; an antidote clears the worst.',
   },
   squisher: {
     name: 'Crusher', color: '#8d97b5', persistent: true,
