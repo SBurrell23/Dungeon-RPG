@@ -1,4 +1,4 @@
-import { TILE, SOLID_DECOR, decorPlacement } from '../assets/manifest.js';
+import { TILE, SOLID_DECOR, decorPlacement, TRAP_SHEETS } from '../assets/manifest.js';
 import { RNG } from '../core/rng.js';
 import { clamp, dist, dist2, TAU, retain, nextId } from '../core/util.js';
 import { bus } from '../core/events.js';
@@ -55,7 +55,28 @@ const TRAP_REVEAL_RANGE = 150;
 const CODEX_RANGE = 310;
 
 /** Trap kinds that survive being triggered and re-arm; the rest are one-shot. */
-const PERSISTENT_TRAPS = new Set(['flame', 'poison']);
+/**
+ * Traps that keep working. A bear trap snaps once and is finished; everything
+ * else is a hazard to route around for the rest of the run.
+ */
+const PERSISTENT_TRAPS = new Set(['fire', 'spike', 'pit', 'poison', 'squisher']);
+
+/**
+ * How long one full cycle takes, in seconds, for the traps that run on a clock.
+ *
+ * The animation plays once at the start of the cycle and the trap rests on its
+ * dormant frame for the remainder, which is what gives you a window to cross.
+ */
+const TRAP_PERIOD = { fire: 3.2, spike: 2.8, squisher: 3.6 };
+
+/** Seconds between ticks for the traps that are simply always on. */
+const PIT_TICK = 0.9;
+
+/** What to call each trap in the log. */
+const TRAP_LABEL = {
+  bear: 'bear trap', fire: 'fire vent', spike: 'spike bed',
+  pit: 'spike pit', poison: 'gas vent', squisher: 'crusher',
+};
 
 export class World {
   /** @param {{ seed:string, isHost:boolean }} opts */
@@ -1279,12 +1300,16 @@ export class World {
     switch (e.id) {
       case 'burn':
       case 'poison':
+      case 'bleed': {
+        const NAME = { burn: 'Burning', poison: 'Poisoned', bleed: 'Bleeding' };
+        const TYPE = { burn: 'fire', poison: 'poison', bleed: 'phys' };
         applyBuffTo(target, {
-          id: e.id, name: e.id === 'burn' ? 'Burning' : 'Poisoned',
+          id: e.id, name: NAME[e.id],
           duration: e.duration, dot: power * e.coef, tick: e.tick, tickTimer: e.tick,
-          sourceId: source?.id, type: e.id === 'burn' ? 'fire' : 'poison',
+          sourceId: source?.id, type: TYPE[e.id],
         });
         break;
+      }
       case 'chill':
         applyBuffTo(target, { id: 'chill', name: 'Chilled', duration: e.duration, slow: e.slow });
         break;
@@ -1579,16 +1604,6 @@ export class World {
   // Props: traps, chests, shrines, stairs
   // -------------------------------------------------------------------------
 
-  updateTraps(dt) {
-    for (const prop of this.dungeon.props) {
-      if (prop.type !== 'trap' || prop.spent) continue;
-      if (prop.cooldown > 0) {
-        prop.cooldown -= dt;
-        if (prop.cooldown <= 0) prop.armed = true;
-      }
-    }
-  }
-
   /**
    * Traps fade in when somebody is close and fade back out when they leave, so
    * a cleared room does not stay littered with markers. `vis` is a 0-1 alpha
@@ -1634,7 +1649,55 @@ export class World {
     }
   }
 
+  /**
+   * Where a cycling trap is in its animation right now.
+   *
+   * A pure function of the world clock and a per-trap offset, so host and
+   * client agree on every frame without a byte of traffic. Clients take
+   * `world.time` from the snapshot, so the two stay locked together.
+   */
+  trapFrame(trap) {
+    const def = TRAP_SHEETS[trap.sheet || trap.kind];
+    if (!def) return 0;
+    if (trap.kind === 'bear') {
+      // Not on a clock: shut once it has fired, open until then.
+      return trap.spent ? def.frames - 1 : 0;
+    }
+    if (def.frames <= 1) return 0;
+    const period = TRAP_PERIOD[trap.kind] || 3;
+    const t = ((this.time + (trap.offset || 0)) % period + period) % period;
+    const f = Math.floor(t * def.fps);
+    return f < def.frames ? f : 0;
+  }
+
+  /** True while the trap is actually dangerous, which is when it looks it. */
+  trapIsHot(trap) {
+    if (trap.spent) return false;
+    const def = TRAP_SHEETS[trap.sheet || trap.kind];
+    if (!def) return false;
+    if (trap.kind === 'pit') return true;
+    const f = this.trapFrame(trap);
+    return f >= def.hit[0] && f <= def.hit[1];
+  }
+
+  /** The tiles a trap covers. Only a squisher spans more than its own. */
+  trapTiles(trap) {
+    if (trap.kind !== 'squisher') return [[trap.x, trap.y]];
+    const out = [];
+    for (let i = 0; i < (trap.span || 2); i++) {
+      out.push(trap.axis === 'v' ? [trap.x, trap.y + i] : [trap.x + i, trap.y]);
+    }
+    return out;
+  }
+
+  /**
+   * Step-on traps: the ones that go off because you touched them.
+   *
+   * The cycling hazards are handled in updateTraps instead, because standing
+   * still in a fire vent should still burn you.
+   */
   checkTraps(p) {
+    if (!this.isHost) return;
     const d = this.dungeon;
     const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
     if (p.lastTrapTile === ty * d.w + tx) return;
@@ -1642,9 +1705,94 @@ export class World {
 
     for (const prop of d.props) {
       if (prop.type !== 'trap' || !prop.armed || prop.spent) continue;
+      if (prop.kind !== 'bear' && prop.kind !== 'poison') continue;
       if (prop.x !== tx || prop.y !== ty) continue;
       this.triggerTrap(prop, p);
       break;
+    }
+  }
+
+  /** Everyone standing in this trap's tiles right now. */
+  playersInTrap(trap) {
+    const tiles = this.trapTiles(trap);
+    const out = [];
+    for (const p of this.players) {
+      if (p.dead || p.downed) continue;
+      const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
+      if (tiles.some(([x, y]) => x === tx && y === ty)) out.push(p);
+    }
+    return out;
+  }
+
+  /**
+   * The traps that run on a clock.
+   *
+   * Damage lands on the frame the hazard becomes dangerous, so what hurts you
+   * is exactly what you can see: spikes at full extension, a flame at its
+   * height, two rams meeting in the middle of a corridor.
+   */
+  updateTraps(dt) {
+    if (!this.isHost) return;
+    const power = 8 + this.floorNo * 7;
+
+    for (const trap of this.dungeon.props) {
+      if (trap.type !== 'trap' || trap.spent) continue;
+
+      if (trap.cooldown > 0) {
+        trap.cooldown -= dt;
+        if (trap.cooldown <= 0) trap.armed = true;
+      }
+      if (trap.kind === 'bear' || trap.kind === 'poison') continue;
+
+      const hot = this.trapIsHot(trap);
+
+      if (trap.kind === 'pit') {
+        // Always out. Small, steady, and survivable if you keep moving.
+        trap.tick = (trap.tick || 0) - dt;
+        if (trap.tick > 0) continue;
+        trap.tick = PIT_TICK;
+        for (const p of this.playersInTrap(trap)) {
+          this.dealDamage({ source: null, target: p, amount: power * 0.42, type: 'phys' });
+          this.sfxAt(p.x, p.y, 'spike');
+        }
+        continue;
+      }
+
+      // Everything else fires on the edge, once per cycle.
+      if (hot && !trap.wasHot) this.fireCyclingTrap(trap, power);
+      trap.wasHot = hot;
+    }
+  }
+
+  fireCyclingTrap(trap, power) {
+    const caught = this.playersInTrap(trap);
+    if (!caught.length) return;
+    for (const p of caught) {
+      switch (trap.kind) {
+        case 'fire':
+          this.dealDamage({ source: null, target: p, amount: power * 1.1, type: 'fire' });
+          this.applyEffect({ stats: { spellPower: power } }, p,
+            { id: 'burn', duration: 3, coef: 0.16, tick: 0.5 });
+          this.sfxAt(p.x, p.y, 'flame');
+          break;
+        case 'spike':
+          this.dealDamage({ source: null, target: p, amount: power * 0.95, type: 'phys' });
+          this.applyEffect({ stats: { spellPower: power } }, p,
+            { id: 'bleed', duration: 4, coef: 0.14, tick: 0.6 });
+          this.sfxAt(p.x, p.y, 'spike');
+          break;
+        case 'squisher':
+          // Rams from both walls. It hurts a great deal and does not shove you
+          // around, because being pushed out of a corridor you were crossing on
+          // purpose is worse than the damage.
+          this.dealDamage({ source: null, target: p, amount: power * 1.7, type: 'phys' });
+          this.shake(6);
+          this.sfxAt(p.x, p.y, 'spike');
+          break;
+        default:
+          break;
+      }
+      p.stat.trapsTriggered++;
     }
   }
 
@@ -1656,41 +1804,19 @@ export class World {
     // every client a sprung trap stayed armed and visible for the whole run.
     this.emitEvent({ t: 'trap', f: this.floorNo, x: trap.x, y: trap.y });
     p.stat.trapsTriggered++;
-    // One-shot traps break when they fire; vents and gas jets keep working, so
-    // they re-arm and stay on the map as a hazard to route around.
-    if (PERSISTENT_TRAPS.has(trap.kind)) {
-      trap.cooldown = 8;
-    } else {
-      trap.spent = true;
-    }
-    const power = 8 + this.floorNo * 7;
+    if (PERSISTENT_TRAPS.has(trap.kind)) trap.cooldown = 8;
+    else trap.spent = true;
 
+    const power = 8 + this.floorNo * 7;
     switch (trap.kind) {
-      case 'spike':
-        this.dealDamage({ source: null, target: p, amount: power * 1.6, type: 'phys' });
-        this.spawnFx('spikes', p.x, p.y, { color: '#c8c8d0', radius: 26, life: 0.4 });
+      case 'bear':
+        // One jaw, one bite, and it is done. The damage is the whole point.
+        this.dealDamage({ source: null, target: p, amount: power * 2.6, type: 'phys' });
+        this.applyEffect({ stats: { spellPower: power } }, p,
+          { id: 'bleed', duration: 5, coef: 0.18, tick: 0.6 });
+        this.applyBuff(p, { id: 'chill', name: 'Caught', duration: 1.1, slow: 0.75 });
+        this.spawnFx('spikes', p.x, p.y, { color: '#c8c8d0', radius: 24, life: 0.4 });
         this.sfxAt(p.x, p.y, 'spike');
-        break;
-      case 'dart': {
-        const angle = this.rng.float(0, TAU);
-        for (let i = 0; i < 6; i++) {
-          this.projectiles.push(createProjectile({
-            ownerId: -1, team: TEAM.MONSTER,
-            x: p.x, y: p.y, angle: angle + (i / 6) * TAU,
-            speed: 300, radius: 6, range: 260,
-            damage: power * 0.8, type: 'phys', sprite: 'arrow3',
-          }));
-        }
-        this.sfxAt(p.x, p.y, 'dart');
-        break;
-      }
-      case 'flame':
-        this.groundZone({ id: -1, team: TEAM.MONSTER, stats: { spellPower: power } }, {
-          x: p.x, y: p.y, radius: 78, duration: 3, tickRate: 0.4,
-          coef: 0.5, power: 'spellPower', type: 'fire', color: '#ff7030',
-          effects: [{ id: 'burn', duration: 3, coef: 0.15, tick: 0.5 }],
-        });
-        this.sfxAt(p.x, p.y, 'flame');
         break;
       case 'poison':
         this.groundZone({ id: -1, team: TEAM.MONSTER, stats: { spellPower: power } }, {
@@ -1704,7 +1830,7 @@ export class World {
         break;
     }
     this.shake(4);
-    this.pushLog(`${p.name} triggered a ${trap.kind} trap!`, '#ff9060');
+    this.pushLog(`${p.name} triggered a ${TRAP_LABEL[trap.kind] || trap.kind}!`, '#ff9060');
   }
 
   /** What the player would interact with right now, or null. */

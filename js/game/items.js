@@ -1,5 +1,5 @@
 import { ICON, ICON_FAMILIES } from '../assets/manifest.js';
-import { emptyMods } from './stats.js';
+import { emptyMods, expectedLevelForFloor } from './stats.js';
 import { tomePool, getAbility } from './abilities.js';
 import { clamp } from '../core/util.js';
 
@@ -110,6 +110,21 @@ export function tierForFloor(rng, floorNo) {
   const centre = (floorNo - 1) * 1.45;
   const t = centre + rng.gauss(0.6, 1.6);
   return clamp(Math.round(t), 0, 15);
+}
+
+/**
+ * A tier whose level requirement lands around `level`.
+ *
+ * `levelReq` is round(tier * 2.1), so this inverts that and biases a little
+ * low: a merchant that mostly sells things you cannot equip yet is a merchant
+ * you walk past.
+ */
+export function tierForLevel(rng, level) {
+  // Biased a full level low on purpose. A window where most of the stock is
+  // greyed out is a window you stop opening, and the few items above the line
+  // are the ones worth saving for.
+  const centre = Math.max(0, (level - 1) / 2.1);
+  return clamp(Math.round(centre + rng.gauss(-0.1, 1.3)), 0, 15);
 }
 
 export function rollRarity(rng, magicFind = 0, luck = 0) {
@@ -337,16 +352,16 @@ export function rollLoot(rng, opts) {
   // Drop rates are deliberately stingy. A rare upgrade you had to work for is
   // worth more than a stream of loot you stop reading.
   const profile = {
-    monster: { goldChance: 0.22, gold: [1, 4], equipChance: 0.022, consChance: 0.032, tomeChance: 0.002, count: 1 },
-    elite: { goldChance: 0.6, gold: [3, 10], equipChance: 0.12, consChance: 0.1, tomeChance: 0.012, count: 1 },
-    prop: { goldChance: 0.3, gold: [1, 3], equipChance: 0.015, consChance: 0.05, tomeChance: 0.001, count: 1 },
-    chest: { goldChance: 0.8, gold: [5, 14], equipChance: 0.6, consChance: 0.3, tomeChance: 0.05, count: 1 },
-    rareChest: { goldChance: 1, gold: [12, 32], equipChance: 1, consChance: 0.45, tomeChance: 0.14, count: 2 },
-    boss: { goldChance: 1, gold: [40, 90], equipChance: 1, consChance: 0.7, tomeChance: 0.4, count: 3 },
+    monster: { goldChance: 0.32, gold: [2, 5], equipChance: 0.022, consChance: 0.032, tomeChance: 0.002, count: 1 },
+    elite: { goldChance: 0.7, gold: [4, 12], equipChance: 0.12, consChance: 0.1, tomeChance: 0.012, count: 1 },
+    prop: { goldChance: 0.38, gold: [2, 4], equipChance: 0.015, consChance: 0.05, tomeChance: 0.001, count: 1 },
+    chest: { goldChance: 0.85, gold: [7, 18], equipChance: 0.6, consChance: 0.3, tomeChance: 0.05, count: 1 },
+    rareChest: { goldChance: 1, gold: [16, 40], equipChance: 1, consChance: 0.45, tomeChance: 0.14, count: 2 },
+    boss: { goldChance: 1, gold: [55, 115], equipChance: 1, consChance: 0.7, tomeChance: 0.4, count: 3 },
   }[source] || { goldChance: 0.2, gold: [1, 2], equipChance: 0.012, consChance: 0.03, tomeChance: 0, count: 1 };
 
   if (rng.bool(profile.goldChance)) {
-    const g = Math.max(1, Math.round(rng.int(profile.gold[0], profile.gold[1]) * (1 + floorNo * 0.18)));
+    const g = Math.max(1, Math.round(rng.int(profile.gold[0], profile.gold[1]) * (1 + floorNo * 0.22)));
     out.push(makeGold(g));
   }
 
@@ -389,9 +404,16 @@ export function rollShopStock(rng, floorNo) {
     stock.push({ item: makeConsumable('revivePotion', 1), qty: 1 });
   }
 
-  const equipCount = 3 + Math.floor(floorNo / 4);
+  // Stocked for the party rather than for the floor. Rolling at floor + 1 put
+  // the level requirement several levels above where a party actually is, so
+  // most of the window was things you could look at and not buy.
+  const level = expectedLevelForFloor(floorNo);
+  const equipCount = 8 + Math.floor(floorNo / 2);
   for (let i = 0; i < equipCount; i++) {
-    stock.push({ item: rollEquipment(rng, { floor: floorNo + 1, magicFind: 0.5 }), qty: 1 });
+    stock.push({
+      item: rollEquipment(rng, { tier: tierForLevel(rng, level), floor: floorNo, magicFind: 0.5 }),
+      qty: 1,
+    });
   }
   const pool = tomePool(floorNo);
   if (pool.length && rng.bool(0.7)) {

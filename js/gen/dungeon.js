@@ -1079,7 +1079,23 @@ function decorate(rng, d, floorNo) {
   placeTraps(rng, d, floorNo, freeTile, take);
 }
 
-const TRAP_KINDS = ['spike', 'dart', 'flame', 'poison'];
+/**
+ * Trap kinds, with the floor each becomes available and how often it is picked.
+ *
+ * Bear traps and pits are the shallow-floor hazards - one is a nasty surprise,
+ * the other is a slow tax on walking carelessly. The cycling hazards arrive
+ * later, when a party has the health to survive learning them.
+ */
+const TRAP_KINDS = [
+  { kind: 'bear', from: 1, weight: 10 },
+  { kind: 'pit', from: 1, weight: 4 },
+  { kind: 'spike', from: 2, weight: 9 },
+  { kind: 'fire', from: 3, weight: 8 },
+  { kind: 'poison', from: 4, weight: 6 },
+];
+
+/** How many tiles a pit cluster covers. Pits come in beds, not singles. */
+const PIT_CLUSTER = [3, 7];
 
 /**
  * A trap plate has to sit on open ground, not against a wall.
@@ -1096,9 +1112,39 @@ function trapGround(d, x, y) {
     && d.isFloor(x, y - 1) && d.isFloor(x, y + 1);
 }
 
+/**
+ * A cross-section of thin corridor, or null.
+ *
+ * A crusher needs a wall on each side with floor between, which is the whole
+ * reason it only appears in corridors: in an open room the rams would have
+ * nothing to close against and you could simply walk around them.
+ *
+ * Returns the anchor tile, the axis the rams travel along, and how many tiles
+ * of floor they close over.
+ */
+function corridorSpan(d, x, y) {
+  for (const [axis, dx, dy] of [['v', 0, 1], ['h', 1, 0]]) {
+    // Walk back to the first floor tile in this direction.
+    let sx = x, sy = y;
+    let guard = 0;
+    while (d.isFloor(sx - dx, sy - dy) && guard++ < 4) { sx -= dx; sy -= dy; }
+    if (!d.isSolid(sx - dx, sy - dy)) continue;
+    let span = 0;
+    while (d.isFloor(sx + dx * span, sy + dy * span) && span < 4) span++;
+    if (span < 2 || span > 3) continue;                      // thin only
+    if (!d.isSolid(sx + dx * span, sy + dy * span)) continue;
+    // And it has to be a corridor along the other axis, not a room edge.
+    const ox = dx ? 0 : 1, oy = dy ? 0 : 1;
+    if (!d.isFloor(sx + ox, sy + oy) && !d.isFloor(sx - ox, sy - oy)) continue;
+    return { x: sx, y: sy, axis, span };
+  }
+  return null;
+}
+
 function placeTraps(rng, d, floorNo, freeTile, take) {
-  const density = 0.0016 + floorNo * 0.0011;
+  const density = 0.0011 + floorNo * 0.0006;
   const target = Math.floor(d.w * d.h * density);
+  const pool = TRAP_KINDS.filter((k) => floorNo >= k.from);
 
   // Valid ground is sparse enough after the wall-adjacency rule that rejection
   // sampling would mostly miss, so collect the legal tiles up front.
@@ -1112,36 +1158,99 @@ function placeTraps(rng, d, floorNo, freeTile, take) {
       spots.push([x, y, d.corridor[d.idx(x, y)] === 1]);
     }
   }
-  // Corridor junctions are still the best trap ground, so they go in first.
   rng.shuffle(spots);
   spots.sort((a, b) => (b[2] ? 1 : 0) - (a[2] ? 1 : 0));
 
-  let placed = 0;
-  for (const [x, y] of spots) {
-    if (placed >= target) break;
-    if (!freeTile(x, y)) continue;
-    const kinds = floorNo >= 4 ? TRAP_KINDS : TRAP_KINDS.slice(0, 2);
+  const add = (kind, x, y, extra = {}) => {
     d.props.push({
-      type: 'trap',
-      kind: rng.pick(kinds),
-      x, y,
-      armed: true,
-      hidden: rng.bool(0.55),
+      type: 'trap', kind, x, y,
+      armed: true, spent: false,
+      // Cycling traps are offset from one another so a corridor of them reads
+      // as a hazard to time rather than a single synchronised wall.
+      offset: +(rng.float(0, 3.6)).toFixed(2),
+      hidden: kind === 'bear' && rng.bool(0.6),
+      ...extra,
     });
     take(x, y);
+  };
+
+  let placed = 0;
+  for (const [x, y, inCorridor] of spots) {
+    if (placed >= target) break;
+    if (!freeTile(x, y)) continue;
+    const kind = rng.weighted(pool, (k) => k.weight).kind;
+
+    if (kind === 'pit') {
+      // A bed of spikes, grown outward from here.
+      const want = Math.min(rng.int(PIT_CLUSTER[0], PIT_CLUSTER[1]), target - placed);
+      const frontier = [[x, y]];
+      let made = 0;
+      while (frontier.length && made < want) {
+        const [cx, cy] = frontier.splice(rng.int(0, frontier.length - 1), 1)[0];
+        if (!freeTile(cx, cy) || !trapGround(d, cx, cy)) continue;
+        add('pit', cx, cy);
+        made++; placed++;
+        for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) frontier.push([cx + ax, cy + ay]);
+      }
+      continue;
+    }
+
+    add(kind, x, y);
     placed++;
+  }
+
+  // Crushers, which need a corridor rather than a tile. They cannot come from
+  // `spots`: that list requires four floor neighbours, and a two-wide corridor -
+  // exactly the shape a crusher needs - has no such tile.
+  if (floorNo >= 3) {
+    const want = 1 + Math.floor(floorNo / 3);
+    const lanes = [];
+    for (let y = 3; y < d.h - 3; y++) {
+      for (let x = 3; x < d.w - 3; x++) {
+        if (!freeTile(x, y) || d.corridor[d.idx(x, y)] !== 1) continue;
+        if (Math.hypot(x - d.entrance.x, y - d.entrance.y) < 10) continue;
+        lanes.push([x, y]);
+      }
+    }
+    rng.shuffle(lanes);
+    let made = 0;
+    const used = new Set();
+    for (const [x, y] of lanes) {
+      if (made >= want) break;
+      if (!freeTile(x, y)) continue;
+      const span = corridorSpan(d, x, y);
+      if (span && used.has(`${span.x},${span.y}`)) continue;
+      if (!span) continue;
+      const tiles = [];
+      for (let i = 0; i < span.span; i++) {
+        tiles.push(span.axis === 'v' ? [span.x, span.y + i] : [span.x + i, span.y]);
+      }
+      if (!tiles.every(([tx, ty]) => freeTile(tx, ty))) continue;
+      d.props.push({
+        type: 'trap', kind: 'squisher', x: span.x, y: span.y,
+        axis: span.axis, span: span.span,
+        sheet: span.axis === 'v' ? 'pushV' : 'pushH',
+        armed: true, spent: false, hidden: false,
+        offset: +(rng.float(0, 3.6)).toFixed(2),
+      });
+      for (const [tx, ty] of tiles) take(tx, ty);
+      used.add(`${span.x},${span.y}`);
+      made++;
+    }
   }
 
   // Trapped rooms get a dense cluster - a recognisable hazard, not random noise.
   for (const room of d.rooms) {
     if (room.kind !== 'trapped') continue;
-    const spots = room.tiles.filter(([x, y]) => freeTile(x, y) && trapGround(d, x, y));
-    rng.shuffle(spots);
-    const n = Math.min(spots.length, Math.floor(room.area / 8));
+    const roomSpots = room.tiles.filter(([x, y]) => freeTile(x, y) && trapGround(d, x, y));
+    rng.shuffle(roomSpots);
+    // Dense enough to be the room's identity, not so dense that crossing it is
+    // arithmetic rather than a decision.
+    const n = Math.min(roomSpots.length, Math.floor(room.area / 14));
     for (let i = 0; i < n; i++) {
-      const [x, y] = spots[i];
-      d.props.push({ type: 'trap', kind: rng.pick(TRAP_KINDS), x, y, armed: true, hidden: rng.bool(0.3) });
-      take(x, y);
+      const [x, y] = roomSpots[i];
+      if (!freeTile(x, y)) continue;
+      add(rng.weighted(pool, (k) => k.weight).kind, x, y);
     }
   }
 }

@@ -7,6 +7,8 @@ import { PRIMARIES, PRIMARY_LABEL, PRIMARY_BLURB, PRIMARY_ICON, xpToNext } from 
 import { getAbility, SCHOOLS } from '../game/abilities.js';
 import { getClass } from '../game/classes.js';
 import { MONSTERS, TRAP_INFO } from '../game/monsters.js';
+import { TRAP_SHEETS } from '../assets/manifest.js';
+import { assets } from '../assets/loader.js';
 import { playSfx } from '../audio/sfx.js';
 
 /**
@@ -26,46 +28,44 @@ const AI_LABEL = {
  * Small canvas thumbnail of a trap plate. Drawn rather than sprited because
  * the traps themselves are drawn, so the two always match.
  */
+/**
+ * Compendium thumbnail for a trap.
+ *
+ * Drawn from the trap's own spritesheet at the frame where it is dangerous, so
+ * the entry shows the thing you need to recognise in a corridor. The gas vent
+ * has no sheet and keeps its hand-drawn plate.
+ */
 function trapThumb(kind, color) {
   const c = document.createElement('canvas');
   c.width = 40;
   c.height = 40;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#4a4038';
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = '#241f1a';
   ctx.fillRect(2, 2, 36, 36);
   ctx.strokeStyle = '#6a5b4c';
   ctx.strokeRect(4.5, 4.5, 31, 31);
-  ctx.fillStyle = color;
-  if (kind === 'spike') {
-    for (let i = 0; i < 3; i++) {
-      ctx.beginPath();
-      ctx.moveTo(9 + i * 11, 28);
-      ctx.lineTo(12.5 + i * 11, 12);
-      ctx.lineTo(16 + i * 11, 28);
-      ctx.fill();
-    }
-  } else if (kind === 'dart') {
-    for (let gy = 0; gy < 3; gy++) {
-      for (let gx = 0; gx < 3; gx++) {
-        ctx.beginPath();
-        ctx.arc(11 + gx * 9, 11 + gy * 9, 2.4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  } else if (kind === 'flame') {
-    for (let i = 0; i < 5; i++) ctx.fillRect(8, 9 + i * 5, 24, 2.4);
-  } else {
-    ctx.beginPath();
-    ctx.arc(20, 20, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#2a2620';
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.arc(20 + Math.cos(a) * 5, 20 + Math.sin(a) * 5, 1.8, 0, Math.PI * 2);
-      ctx.fill();
-    }
+
+  const def = TRAP_SHEETS[kind === 'squisher' ? 'pushH' : kind];
+  const img = def && assets.img(def.img);
+  if (img) {
+    // The frame the trap is at its most recognisable: mid-strike.
+    const frame = Math.min(def.frames - 1, def.hit[1]);
+    const scale = Math.min(32 / def.fw, 32 / def.fh);
+    const w = def.fw * scale, h = def.fh * scale;
+    ctx.drawImage(img, frame * def.fw, 0, def.fw, def.fh, 20 - w / 2, 20 - h / 2, w, h);
+    return c;
   }
+
+  // Gas vent: a perforated cap, in flat blocks.
+  ctx.fillStyle = '#4a5238';
+  ctx.fillRect(8, 9, 24, 22);
+  ctx.fillStyle = '#5d6844';
+  ctx.fillRect(8, 9, 24, 3);
+  ctx.fillStyle = '#1d2313';
+  for (let r = 0; r < 3; r++) for (let cx = 0; cx < 4; cx++) ctx.fillRect(10 + cx * 6, 14 + r * 6, 3, 3);
+  ctx.fillStyle = color;
+  for (let r = 0; r < 3; r++) for (let cx = 0; cx < 4; cx++) ctx.fillRect(10 + cx * 6, 14 + r * 6, 3, 1);
   return c;
 }
 

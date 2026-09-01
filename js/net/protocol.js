@@ -110,6 +110,11 @@ export function buildSnapshot(world) {
 
 /** Apply a snapshot to a client-side world. */
 export function applySnapshot(world, snap) {
+  // Cycling traps derive their animation frame - and therefore the window in
+  // which they hurt you - from the world clock. Taking the host's keeps every
+  // client's spikes and flames in step with the ones doing the damage, without
+  // sending a byte per trap.
+  if (typeof snap.t === 'number') world.time = snap.t;
   if (snap.descent) {
     world.descent.playerId = snap.descent[0] || null;
     world.descent.progress = snap.descent[1];

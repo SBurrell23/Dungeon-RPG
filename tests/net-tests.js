@@ -398,9 +398,9 @@ test('a sprung trap is spent on the clients too', () => {
   // Symptom: trap state only ever travelled in the once-per-floor manifest, so
   // on a client every trap stayed armed and visible for the whole run.
   const sim = new NetSim({ seed: 'trapsync', clients: 2, floor: 4, latency: 0.05 });
-  const trap = sim.host.dungeon.props.find(
-    (t) => t.type === 'trap' && t.kind !== 'flame' && t.kind !== 'poison');
-  if (!trap) throw new Error('no one-shot trap on this floor');
+  // The bear trap is the only one-shot left; everything else cycles for ever.
+  const trap = sim.host.dungeon.props.find((t) => t.type === 'trap' && t.kind === 'bear');
+  if (!trap) throw new Error('no bear trap on this floor');
   const p = sim.host.players[0];
   const c = sim.host.dungeon.tileCenter(trap.x, trap.y);
   p.x = c.x; p.y = c.y; p.px = p.x; p.py = p.y;
@@ -416,6 +416,54 @@ test('a sprung trap is spent on the clients too', () => {
     }
   }
   return { kind: trap.kind, hostSpent: trap.spent, clientsSpent: sim.clients.length };
+});
+
+test('cycling traps are on the same frame for everyone', () => {
+  // A fire vent only burns while its flame is up, so if a client's animation
+  // drifted from the host's it would show people a safe-looking trap that was
+  // about to hurt them. Phase comes from the world clock, which the snapshot
+  // carries, rather than from per-trap traffic.
+  const sim = new NetSim({ seed: 'trapphase', clients: 2, floor: 8, latency: 0.08 });
+  const cycling = sim.host.dungeon.props.filter(
+    (t) => t.type === 'trap' && (t.kind === 'fire' || t.kind === 'spike' || t.kind === 'squisher'));
+  if (cycling.length < 3) throw new Error('not enough cycling traps to judge');
+
+  sim.run(600, () => idle());
+
+  let worst = 0;
+  for (const c of sim.clients) {
+    for (const trap of cycling) {
+      const mine = c.world.dungeon.props.find(
+        (t) => t.type === 'trap' && t.x === trap.x && t.y === trap.y);
+      if (!mine) throw new Error('client is missing a trap the host has');
+      const a2 = sim.host.trapFrame(trap);
+      const b2 = c.world.trapFrame(mine);
+      worst = Math.max(worst, Math.abs(a2 - b2));
+      if (sim.host.trapIsHot(trap) !== c.world.trapIsHot(mine) && Math.abs(a2 - b2) > 1) {
+        throw new Error(`danger state disagrees on a ${trap.kind}: host frame ${a2}, client ${b2}`);
+      }
+    }
+  }
+  if (worst > 1) throw new Error(`animation frames drifted by ${worst}`);
+  return { traps: cycling.length, worstFrameDrift: worst };
+});
+
+test('only the host deals trap damage', () => {
+  // updatePlayer runs on clients too. If a client applied trap damage locally
+  // it would double-count against the host's authoritative value.
+  const sim = new NetSim({ seed: 'traphost', clients: 1, floor: 8, latency: 0 });
+  const client = sim.clients[0].world;
+  const trap = client.dungeon.props.find((t) => t.type === 'trap' && t.kind === 'pit');
+  if (!trap) throw new Error('no pit on this floor');
+  const p = sim.clients[0].local;
+  const c = client.dungeon.tileCenter(trap.x, trap.y);
+  p.x = c.x; p.y = c.y;
+  p.hp = p.stats.maxHp;
+  const before = p.hp;
+  // Drive the client world alone; the host is not simulating this player here.
+  for (let i = 0; i < 300; i++) client.update(1 / 60, null);
+  if (p.hp < before) throw new Error(`client applied ${Math.round(before - p.hp)} trap damage of its own`);
+  return { hpUnchanged: Math.round(p.hp) };
 });
 
 // ---------------------------------------------------------------------------

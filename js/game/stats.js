@@ -65,8 +65,29 @@ export function addMods(target, src, scale = 1) {
  * each floor arrives at roughly level 3, 4, 6, 9, 11, 16, 20, 24, 28, 32 on
  * floors 1-10, so there is a level-up every few rooms without ever capping out.
  */
+/**
+ * XP for the next level.
+ *
+ * Monster level climbs linearly with depth (about 3 a floor) while this used to
+ * climb as L^1.70, so a party fell further behind the deeper it went - six
+ * levels under the monsters by floor 10, which also put every shop item out of
+ * reach. Fitted so that clearing about three quarters of a floor keeps you
+ * level with it: clear everything and you run a little ahead, rush and you
+ * fall behind, which is the trade that should exist.
+ */
 export function xpToNext(level) {
-  return Math.floor(58 * Math.pow(level, 1.70) + 40 * level);
+  return Math.floor(58 * Math.pow(level, 1.46) + 40 * level);
+}
+
+/**
+ * Where a party is expected to be on a given floor.
+ *
+ * The single reference the rest of the game balances against - what a merchant
+ * stocks, most obviously - so that "appropriate for this floor" and
+ * "appropriate for this party" cannot drift apart again.
+ */
+export function expectedLevelForFloor(floorNo) {
+  return Math.max(1, Math.round(2.6 + floorNo * 2.6));
 }
 
 export function totalXpForLevel(level) {
@@ -174,7 +195,7 @@ export function scaleMonster(base, level) {
     damage: base.damage * (1 + t * 0.24),
     armor: Math.round(base.armor + t * 1.2),
     resist: Math.round((base.resist || 0) + t * 1.0),
-    xp: Math.round(base.xp * (1 + t * 0.26)),
+    xp: Math.round(base.xp * (1 + t * 0.20)),
     speed: base.speed,
   };
 }

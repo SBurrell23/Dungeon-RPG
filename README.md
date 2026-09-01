@@ -142,6 +142,35 @@ tests/
 
 ## Design notes
 
+### Traps are on a clock, not a trigger
+
+Most traps no longer wait to be stepped on. A fire vent, a spike bed and a
+crusher each run a cycle, and the frame of that cycle is a pure function of the
+world clock and a per-trap offset - so every client animates them identically
+without a byte of traffic, and the frame that hurts you is the frame you can
+see. `TRAP_SHEETS` in the manifest names the damage window alongside the sheet
+geometry, which keeps the two from drifting apart.
+
+Only the host applies the damage. `updatePlayer` runs on clients too, so both
+`checkTraps` and `updateTraps` return early off-host; a client that dealt trap
+damage locally would double-count it against the host's authoritative value.
+
+The bear trap is the one that still waits for a footfall - it bites once, hard,
+and is finished. Crushers only generate in corridors two or three tiles across,
+because a ram needs an opposing wall to close against; in an open room you would
+simply walk around it.
+
+### Levels, shops and the gap between them
+
+Monster level climbs linearly with depth while XP-to-level used to climb as
+L^1.70, so a party fell further behind the deeper it went - six levels under the
+monsters by floor 10, which also put every merchant item out of reach. The curve
+is now fitted so that clearing about three quarters of a floor keeps you level
+with it. `expectedLevelForFloor` is the single reference the rest of the game
+balances against, so "right for this floor" and "right for this party" cannot
+drift apart again: a merchant stocks against it rather than against the floor
+number, which is what used to put its window several levels out of reach.
+
 ### The build stamp
 
 `js/version.js` holds a version and a build date, rendered faintly in the bottom-right

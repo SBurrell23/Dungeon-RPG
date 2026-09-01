@@ -95,6 +95,37 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+/**
+ * Audio levels and screen shake, remembered between sessions.
+ *
+ * Nobody wants to re-lower the music every time they open the game.
+ */
+const SETTINGS_KEY = 'dungeonrpg.settings.v1';
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      music: +$('#opt-music').value,
+      sfx: +$('#opt-sfx').value,
+      shake: $('#opt-shake').checked,
+    }));
+  } catch { /* private mode, or a full quota; the game plays fine without */ }
+}
+
+function loadSettings() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'); } catch { /* ignore */ }
+  const music = Number.isFinite(saved?.music) ? saved.music : +$('#opt-music').value;
+  const sfx = Number.isFinite(saved?.sfx) ? saved.sfx : +$('#opt-sfx').value;
+  const shake = typeof saved?.shake === 'boolean' ? saved.shake : $('#opt-shake').checked;
+  $('#opt-music').value = music;
+  $('#opt-sfx').value = sfx;
+  $('#opt-shake').checked = shake;
+  setMusicVolume(music / 100);
+  setSfxVolume(sfx / 100);
+  game.shakeEnabled = shake;
+}
+
 async function boot() {
   $('#buildstamp').textContent = `v${VERSION} · ${BUILD}`;
   bindButtonSounds();
@@ -123,6 +154,7 @@ async function boot() {
   game.lobby.refreshPortraits();
 
   game.panels = new Panels(makeActions());
+  loadSettings();
 
   loop.start();
   goToMenu();
@@ -234,9 +266,15 @@ function bindMenu() {
   $('#btn-optclose').addEventListener('click', () => hideScreen('screen-options'));
   $('#btn-endmenu').addEventListener('click', () => leaveToMenu());
 
-  $('#opt-music').addEventListener('input', (e) => setMusicVolume(e.target.value / 100));
-  $('#opt-sfx').addEventListener('input', (e) => setSfxVolume(e.target.value / 100));
-  $('#opt-shake').addEventListener('change', (e) => { game.shakeEnabled = e.target.checked; });
+  $('#opt-music').addEventListener('input', (e) => {
+    setMusicVolume(e.target.value / 100);
+    saveSettings();
+  });
+  $('#opt-sfx').addEventListener('input', (e) => {
+    setSfxVolume(e.target.value / 100);
+    saveSettings();
+  });
+  $('#opt-shake').addEventListener('change', (e) => { game.shakeEnabled = e.target.checked; saveSettings(); });
 
   $('#btn-closemap').addEventListener('click', () => toggleMap(false));
   $('#btn-descend-no').addEventListener('click', () => hideScreen('screen-descend'));

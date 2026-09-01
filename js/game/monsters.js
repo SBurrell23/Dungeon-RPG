@@ -269,21 +269,29 @@ export function levelForSpawn(floorNo, roomDepth, elite, boss) {
  * "what is this thing" copy lives in one place.
  */
 export const TRAP_INFO = {
+  bear: {
+    name: 'Bear Trap', color: '#8fa0b8', persistent: false,
+    flavour: 'Sprung steel under a scatter of dirt. It bites once, hard enough to matter, and holds you still long enough to regret it.',
+  },
+  pit: {
+    name: 'Spike Pit', color: '#b9c4d6', persistent: true,
+    flavour: 'Sharpened stakes set into the floor in beds. No mechanism to trip and nothing to disarm - each step across costs you.',
+  },
   spike: {
-    name: 'Spike Plate', color: '#cfd6e2', persistent: false,
-    flavour: 'A pressure plate over a bed of blades. Springs once, hard, then the mechanism is spent.',
+    name: 'Spike Bed', color: '#cfd6e2', persistent: true,
+    flavour: 'Blades on a slow escapement, rising and falling for ever. Cross while they are down; they open wounds that keep bleeding.',
   },
-  dart: {
-    name: 'Dart Grille', color: '#d8b070', persistent: false,
-    flavour: 'Bore holes packed with primed darts. Fires in every direction at once, so backing off does not help.',
-  },
-  flame: {
-    name: 'Flame Vent', color: '#ff8a3c', persistent: true,
-    flavour: 'A burner grate fed from below. It re-arms after a few seconds - route around it rather than through it.',
+  fire: {
+    name: 'Fire Vent', color: '#ff8a3c', persistent: true,
+    flavour: 'A burner fed from below. Harmless between breaths and lethal at full height, and the burning outlasts the flame.',
   },
   poison: {
     name: 'Gas Vent', color: '#96e072', persistent: true,
     flavour: 'A perforated cap over a pocket of rot. Leaves a lingering cloud and keeps venting; an antidote clears the worst.',
+  },
+  squisher: {
+    name: 'Crusher', color: '#8d97b5', persistent: true,
+    flavour: 'Paired rams set into opposite walls of a narrow passage. They meet in the middle on a slow count, and the passage is the only way through.',
   },
 };
 

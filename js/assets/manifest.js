@@ -134,6 +134,43 @@ export const IMAGES = {
   fxPriestHeal: 'assets/projectiles/Magic(Projectile)/Priest_Heal_effect.png',
   fxNecro: 'assets/projectiles/Magic(Projectile)/Necromancer_Attack02_Effect.png',
   fxSummon: 'assets/projectiles/Magic(Projectile)/Necromancer_Sumon_Effect.png',
+
+  trapBear: 'assets/traps/Bear_Trap.png',
+  trapFire: 'assets/traps/Fire_Trap.png',
+  trapPit: 'assets/traps/Pit_Trap_Spikes.png',
+  trapSpike: 'assets/traps/Spike Trap.png',
+  trapPushV: 'assets/traps/Push_Trap_Front.png',
+  trapPushH: 'assets/traps/Push_Trap_Right.png',
+  chests: 'assets/Animated Chests/Chests.png',
+};
+
+/**
+ * The animated chest sheet: 5 columns of 48x32, two rows per chest.
+ *
+ * The first row is the closed idle, the second the lid coming off, so a chest
+ * plays row A frame 0 shut and row B frame 4 once it has been emptied. The
+ * blue set is deliberately unused - it reads as ice rather than treasure.
+ */
+export const CHEST_SHEET = {
+  img: 'chests', fw: 48, fh: 32, cols: 5, fps: 12,
+  // Row of the closed idle for each loot tier; the open row is the one below.
+  rows: { common: 0, rare: 2, boss: 4 },
+};
+
+/**
+ * Trap spritesheet geometry.
+ *
+ * `hit` is the frame range during which the trap is actually dangerous, which
+ * is what ties the damage to what you can see: a fire vent only burns while the
+ * flame is up, spikes only cut while they are out.
+ */
+export const TRAP_SHEETS = {
+  bear:  { img: 'trapBear',  fw: 32, fh: 32, frames: 4,  fps: 14, hit: [1, 3] },
+  fire:  { img: 'trapFire',  fw: 32, fh: 41, frames: 14, fps: 10, hit: [8, 10] },
+  pit:   { img: 'trapPit',   fw: 32, fh: 32, frames: 1,  fps: 1,  hit: [0, 0] },
+  spike: { img: 'trapSpike', fw: 32, fh: 32, frames: 14, fps: 11, hit: [8, 11] },
+  pushV: { img: 'trapPushV', fw: 32, fh: 32, frames: 11, fps: 9,  hit: [4, 7] },
+  pushH: { img: 'trapPushH', fw: 32, fh: 32, frames: 12, fps: 9,  hit: [4, 7] },
 };
 
 /** Frame counts for the flat FX strips (width / 100). */
@@ -302,12 +339,6 @@ export function decorPlacement(kind, tileX, tileY) {
 }
 
 /** Chest sprites, cavern sheet tile coords. */
-export const CHEST = {
-  common: { closed: [23, 18], open: [23, 19] },
-  rare: { closed: [23, 23], open: [23, 24] },
-  boss: { closed: [23, 28], open: [23, 29] },
-};
-
 /**
  * RA_Cavern_Animations: three colour blocks of 12 rows each. Within a block,
  * groups of 4 frames start at column 1 and are separated by a blank column.

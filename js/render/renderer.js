@@ -1,5 +1,5 @@
 import {
-  TILE, VOID_COLOR, ANIM_TILES, CHEST, ICON_SIZE,
+  TILE, VOID_COLOR, ANIM_TILES, ICON_SIZE, TRAP_SHEETS, CHEST_SHEET,
 } from '../assets/manifest.js';
 import { MONSTERS, ELITE_TINT, BOSS_TINT } from '../game/monsters.js';
 import { CLASSES } from '../game/classes.js';
@@ -44,6 +44,9 @@ export class Renderer {
     this.enableLighting = true;
     this.showHitboxes = false;
     this.time = 0;
+    // When each chest was first seen open, so the lid animation can play
+    // once without the simulation carrying a clock for it.
+    this._chestOpenedAt = new WeakMap();
     // Blend factor between the last two simulation ticks; see drawX/drawY.
     this.alpha = 1;
   }
@@ -144,17 +147,12 @@ export class Renderer {
           break;
         }
         case 'chest': {
-          if (!cavern) break;
-          const set = CHEST[p.tier] || CHEST.common;
-          const [sc, sr] = p.opened ? set.open : set.closed;
-          const off = (TILE - CHEST_SIZE) / 2;
-          ctx.drawImage(cavern, sc * TILE, sr * TILE, TILE, TILE,
-            px + off, py + off + 6, CHEST_SIZE, CHEST_SIZE);
+          this.drawChest(ctx, p, px, py);
           break;
         }
         case 'trap': {
           if (!p.vis || p.vis < 0.02) break;
-          this.drawTrap(ctx, p, px, py);
+          this.drawTrap(ctx, p, px, py, world);
           break;
         }
         default:
@@ -217,117 +215,141 @@ export class Renderer {
    * grille of bore holes, flame is a burner grate, gas is a perforated vent.
    * Alpha comes from `vis`, which the sim fades with proximity.
    */
-  drawTrap(ctx, p, px, py) {
-    const cx = px + TILE / 2, cy = py + TILE / 2;
-    const R = 15;   // sits comfortably inside a tile, clear of the wall rim art
-    const armed = p.armed && !p.spent;
-    const pulse = 0.6 + 0.4 * Math.sin(this.time * 3.4 + p.x * 1.7 + p.y);
+  /**
+   * A chest, from the animated sheet, tiered by what is inside it.
+   *
+   * The lid comes off over about half a second the first time we see it open;
+   * the renderer times that itself rather than the simulation having to carry
+   * an animation clock for a thing that happens once.
+   */
+  drawChest(ctx, p, px, py) {
+    const img = this.assets.img(CHEST_SHEET.img);
+    if (!img) return;
+    const { fw, fh, cols, fps } = CHEST_SHEET;
+    const row = CHEST_SHEET.rows[p.tier] ?? CHEST_SHEET.rows.common;
 
+    let sx = 0, sy = row;
+    if (p.opened) {
+      if (this._chestOpenedAt.get(p) === undefined) this._chestOpenedAt.set(p, this.time);
+      const t = this.time - this._chestOpenedAt.get(p);
+      const f = Math.floor(t * fps);
+      // Row below is the lid coming off; hold on its last frame afterwards.
+      sy = row + 1;
+      sx = Math.min(cols - 1, f);
+    }
+
+    // Chests are 48x32 art on a 48px tile; keep the aspect and sit it on the
+    // floor rather than centring it in the tile.
+    const w = CHEST_SIZE * 1.5;
+    const h = w * (fh / fw);
     ctx.save();
-    // Held under full opacity so a trap reads as part of the floor rather
-    // than a decal sitting on top of it.
-    ctx.globalAlpha = clamp(p.vis ?? 1, 0, 1) * (armed ? TRAP_OPACITY : TRAP_OPACITY * 0.6);
+    ctx.translate(px + TILE / 2, py + TILE / 2 + 4);
+    // A stable coin-flip per chest, so a room of them does not all face one way.
+    if (((p.x * 73856093) ^ (p.y * 19349663)) & 1) ctx.scale(-1, 1);
+    ctx.drawImage(img, sx * fw, sy * fh, fw, fh, -w / 2, -h / 2, w, h);
+    ctx.restore();
+  }
 
-    // Recessed plate: dark socket, stone face, chiselled highlight.
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    roundRect(ctx, cx - R - 1, cy - R - 1, (R + 1) * 2, (R + 1) * 2, 4);
-    ctx.fill();
-    ctx.fillStyle = '#4a4038';
-    roundRect(ctx, cx - R, cy - R, R * 2, R * 2, 3);
-    ctx.fill();
-    ctx.strokeStyle = '#6a5b4c';
-    ctx.lineWidth = 1;
-    roundRect(ctx, cx - R + 1.5, cy - R + 1.5, R * 2 - 3, R * 2 - 3, 2);
-    ctx.stroke();
+  /**
+   * Traps are drawn from their spritesheets, on the frame the simulation says
+   * they are on, so what you see and what hurts you cannot drift apart.
+   *
+   * The poison vent has no sheet and is still drawn by hand, redrawn here as
+   * flat pixel blocks rather than the smooth gradients it had before.
+   */
+  drawTrap(ctx, p, px, py, world) {
+    const alpha = clamp(p.vis ?? 1, 0, 1) * (p.spent ? TRAP_OPACITY * 0.5 : TRAP_OPACITY);
+    if (alpha < 0.02) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
 
-    const accent = { spike: '#cfd6e2', dart: '#d8b070', flame: '#ff8a3c', poison: '#96e072' }[p.kind] || '#ccc';
+    if (p.kind === 'poison') this.drawGasVent(ctx, p, px, py);
+    else if (p.kind === 'squisher') this.drawCrusher(ctx, p, px, py, world);
+    else this.drawTrapSheet(ctx, p, px, py, world);
 
-    if (p.kind === 'spike') {
-      // Blades rising through three slots.
-      ctx.fillStyle = '#241d18';
-      for (let i = -1; i <= 1; i++) ctx.fillRect(cx + i * 10 - 3, cy - 12, 6, 24);
-      ctx.fillStyle = accent;
-      for (let i = -1; i <= 1; i++) {
-        const h = armed ? 7 + pulse * 4 : 3;
-        ctx.beginPath();
-        ctx.moveTo(cx + i * 10 - 3, cy + 6);
-        ctx.lineTo(cx + i * 10, cy + 6 - h * 2);
-        ctx.lineTo(cx + i * 10 + 3, cy + 6);
-        ctx.closePath();
-        ctx.fill();
+    ctx.restore();
+  }
+
+  /** One tile of a sheet-backed trap. */
+  drawTrapSheet(ctx, p, px, py, world) {
+    const def = TRAP_SHEETS[p.sheet || p.kind];
+    const img = def && this.assets.img(def.img);
+    if (!img) return;
+    const frame = world ? world.trapFrame(p) : 0;
+    // The art is 32px to a tile; scale it up and hang any extra height (the
+    // fire vent's flame) above the tile rather than squashing it into it.
+    const scale = TILE / def.fw;
+    const h = def.fh * scale;
+    ctx.drawImage(img, frame * def.fw, 0, def.fw, def.fh,
+      px, py + TILE - h, TILE, h);
+  }
+
+  /**
+   * A crusher: a ram on each wall of a thin corridor, closing on each other.
+   *
+   * One sheet covers both, mirrored - Push_Trap_Front travels along the
+   * vertical axis and Push_Trap_Right along the horizontal, so between them and
+   * a flip the rams face all four ways.
+   */
+  drawCrusher(ctx, p, px, py, world) {
+    const def = TRAP_SHEETS[p.axis === 'v' ? 'pushV' : 'pushH'];
+    const img = def && this.assets.img(def.img);
+    if (!img) return;
+    const frame = world ? world.trapFrame(p) : 0;
+    const span = p.span || 2;
+
+    for (const far of [false, true]) {
+      ctx.save();
+      // Biased toward the corridor by a third of a tile: the wall art hangs
+      // down over its own tile, so a ram centred on the wall tile reads as
+      // floating behind it rather than driving out of it.
+      const BITE = TILE * 0.62;
+      if (p.axis === 'v') {
+        // Rams above and below, the far one flipped to face back up.
+        const y = far ? py + span * TILE - BITE : py - TILE + BITE;
+        ctx.translate(px + TILE / 2, y + TILE / 2);
+        if (far) ctx.scale(1, -1);
+      } else {
+        const x = far ? px + span * TILE - BITE : px - TILE + BITE;
+        ctx.translate(x + TILE / 2, py + TILE / 2);
+        if (far) ctx.scale(-1, 1);
       }
-    } else if (p.kind === 'dart') {
-      // A grille of bore holes, with primed darts glinting inside.
-      ctx.fillStyle = '#241d18';
-      for (let gy = -1; gy <= 1; gy++) {
-        for (let gx = -1; gx <= 1; gx++) {
-          ctx.beginPath();
-          ctx.arc(cx + gx * 10, cy + gy * 10, 3.2, 0, TAU);
-          ctx.fill();
-        }
-      }
-      if (armed) {
-        ctx.fillStyle = accent;
-        for (let gy = -1; gy <= 1; gy++) {
-          for (let gx = -1; gx <= 1; gx++) {
-            ctx.beginPath();
-            ctx.arc(cx + gx * 10, cy + gy * 10, 1.5, 0, TAU);
-            ctx.fill();
-          }
-        }
-      }
-    } else if (p.kind === 'flame') {
-      // Burner grate: slots with embers glowing between the bars.
-      ctx.fillStyle = '#241d18';
-      for (let i = -2; i <= 2; i++) ctx.fillRect(cx - 13, cy + i * 5 - 1.5, 26, 3);
-      if (armed) {
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha *= 0.35 + pulse * 0.45;
-        const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, R);
-        g.addColorStop(0, '#ffd8a0');
-        g.addColorStop(0.5, accent);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(cx, cy, R, 0, TAU);
-        ctx.fill();
-      }
-    } else {
-      // Gas vent: perforated cap with a slow seep.
-      ctx.fillStyle = '#241d18';
-      ctx.beginPath();
-      ctx.arc(cx, cy, 11, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = '#5b5147';
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * TAU + 0.4;
-        ctx.beginPath();
-        ctx.arc(cx + Math.cos(a) * 6, cy + Math.sin(a) * 6, 2, 0, TAU);
-        ctx.fill();
-      }
-      if (armed) {
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha *= 0.25 + pulse * 0.3;
-        const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, R);
-        g.addColorStop(0, accent);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(cx, cy, R, 0, TAU);
-        ctx.fill();
+      ctx.drawImage(img, frame * def.fw, 0, def.fw, def.fh,
+        -TILE / 2, -TILE / 2, TILE, TILE);
+      ctx.restore();
+    }
+  }
+
+  /** The one hand-drawn trap: a perforated cap over a pocket of rot. */
+  drawGasVent(ctx, p, px, py) {
+    const x = px + TILE / 2, y = py + TILE / 2;
+    const armed = p.armed && !p.spent;
+    // Flat blocks, no gradients - it has to sit beside the pixel art, not on it.
+    ctx.fillStyle = '#2b2a22';
+    ctx.fillRect(x - 15, y - 13, 30, 26);
+    ctx.fillStyle = '#4a5238';
+    ctx.fillRect(x - 13, y - 11, 26, 22);
+    ctx.fillStyle = '#5d6844';
+    ctx.fillRect(x - 13, y - 11, 26, 3);
+    ctx.fillStyle = '#33391f';
+    ctx.fillRect(x - 13, y + 8, 26, 3);
+
+    // The perforations.
+    ctx.fillStyle = '#1d2313';
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 4; c++) {
+        ctx.fillRect(x - 11 + c * 7, y - 8 + r * 7, 4, 4);
       }
     }
-    ctx.restore();
-
-    // A hairline of danger colour around an armed plate.
-    if (armed) {
-      ctx.save();
-      ctx.globalAlpha = clamp(p.vis ?? 1, 0, 1) * TRAP_OPACITY * (0.25 + pulse * 0.35);
-      ctx.strokeStyle = accent;
-      ctx.lineWidth = 1.4;
-      roundRect(ctx, cx - R, cy - R, R * 2, R * 2, 3);
-      ctx.stroke();
-      ctx.restore();
+    if (!armed) return;
+    // A little gas sitting in the holes, breathing.
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 2.2 + p.x * 1.7 + p.y);
+    ctx.globalAlpha *= 0.35 + pulse * 0.4;
+    ctx.fillStyle = '#96e072';
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 4; c++) {
+        ctx.fillRect(x - 11 + c * 7, y - 8 + r * 7, 4, 2);
+      }
     }
   }
 
@@ -488,7 +510,17 @@ export class Renderer {
       ctx.globalAlpha = clamp(a.hitFlash * 4, 0, 0.85);
       ctx.drawImage(sheet.img, frame * SPRITE, 0, SPRITE, SPRITE, -size / 2, -size / 2, size, size);
     }
+
+    // Burning tints the sprite itself, because a body on fire should read as
+    // one at a glance rather than as an icon in the corner of the screen.
+    if (!a.dead && a.buffs?.some((b) => b.id === 'burn')) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.28 + 0.16 * Math.sin(this.time * 14 + a.id);
+      ctx.drawImage(sheet.img, frame * SPRITE, 0, SPRITE, SPRITE, -size / 2, -size / 2, size, size);
+    }
     ctx.restore();
+
+    if (!a.dead && a.buffs) this.drawStatusFx(ctx, a, ax, ay);
 
     if (a.shield > 0) {
       ctx.save();
@@ -502,6 +534,54 @@ export class Renderer {
       ctx.restore();
     }
 
+  }
+
+  /**
+   * Bleeding and burning, drawn on the body.
+   *
+   * Both are seeded off the actor's id so every character's flames and drips
+   * are out of step with everyone else's, and both are pure functions of time -
+   * no particle state to keep, and identical on every client.
+   */
+  drawStatusFx(ctx, a, ax, ay) {
+    const r = a.radius || 13;
+    const bleeding = a.buffs.some((b) => b.id === 'bleed');
+    const burning = a.buffs.some((b) => b.id === 'burn');
+    if (!bleeding && !burning) return;
+
+    ctx.save();
+    if (burning) {
+      // Flames licking up off the shoulders and head.
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 5; i++) {
+        const seed = a.id * 0.37 + i * 1.9;
+        const t = (this.time * 1.9 + i * 0.2 + seed) % 1;
+        const x = ax + Math.sin(seed * 5 + this.time * 3) * r * 0.8;
+        const y = ay + r * 0.5 - t * (r * 2.6);
+        const h = (1 - t) * 9 + 3;
+        ctx.globalAlpha = (1 - t) * 0.75;
+        ctx.fillStyle = t < 0.35 ? '#ffe066' : t < 0.7 ? '#ff9a2e' : '#d23b1e';
+        // Blocky, to match the art.
+        ctx.fillRect(Math.round(x) - 2, Math.round(y) - h / 2, 4, h);
+      }
+    }
+    if (bleeding) {
+      // Drips running down and falling off, plus a little pool under the feet.
+      ctx.globalCompositeOperation = 'source-over';
+      for (let i = 0; i < 4; i++) {
+        const seed = a.id * 0.53 + i * 2.7;
+        const t = (this.time * 1.35 + i * 0.27 + seed) % 1;
+        const x = ax + Math.sin(seed * 7) * r * 0.85;
+        const y = ay - r * 0.35 + t * (r * 2.1);
+        ctx.globalAlpha = 0.85 * (1 - t * 0.55);
+        ctx.fillStyle = t < 0.5 ? '#c81e1e' : '#8f1010';
+        ctx.fillRect(Math.round(x), Math.round(y), 2, 3 + (1 - t) * 3);
+      }
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = '#7a0f0f';
+      ctx.fillRect(Math.round(ax - r * 0.5), Math.round(ay + r * 0.85), Math.round(r), 2);
+    }
+    ctx.restore();
   }
 
   resolveSheet(a) {
