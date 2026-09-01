@@ -1,8 +1,9 @@
-import { TILE, SOLID_DECOR, decorPlacement, TRAP_SHEETS } from '../assets/manifest.js';
+import { TILE, TRAP_SHEETS } from '../assets/manifest.js';
 import { RNG } from '../core/rng.js';
 import { clamp, dist, dist2, TAU, retain, nextId } from '../core/util.js';
 import { bus } from '../core/events.js';
 import { generateFloor, BLOCKING_PROPS } from '../gen/dungeon.js';
+import { bodyRadius, hitsRock, hitsRim, hitsRect, buildSolidRects } from '../core/collision.js';
 import { FlowField, updateMonster } from './ai.js';
 import {
   createPlayer, createMonster, createNpc, createProjectile, createPickup,
@@ -36,18 +37,6 @@ const CELL = 96; // spatial hash cell size in pixels
 /** Effects worth the bandwidth to mirror; hit sparks are re-derived from damage. */
 const NETWORKED_FX = new Set(['slash', 'thrust', 'stab', 'blast', 'sheet', 'ward', 'spin',
   'chain', 'spikes', 'heal', 'gather']);
-
-/**
- * How far the rock rim art bleeds over the floor on each side of a wall, in px.
- *
- * Read straight off gen/autotile.js drawRim(): the side pieces are 24px drawn
- * with a 4px bite into the wall tile, so they cover 20px of the floor beside
- * them; the top and bottom faces cover 18px. These were 16 for the sides and
- * south, which is where bodies standing part-way inside the rock came from.
- */
-const RIM_N = 18;   // rock face hanging down from the wall above
-const RIM_S = 18;
-const RIM_W = 20;
 
 /** How long you must hold the descent marker, and how close you must stand. */
 export const DESCENT_TIME = 10;
@@ -232,62 +221,16 @@ export class World {
     this.blocked = new Uint8Array(d.w * d.h);
     for (let i = 0; i < d.tiles.length; i++) this.blocked[i] = d.tiles[i] ? 0 : 1;
 
-    this.solidRects = [];
-    this.rectBuckets = new Map();
-
-    const addRect = (x, y, w, h) => {
-      const rect = { x, y, w, h };
-      this.solidRects.push(rect);
-      const tx0 = Math.floor(x / TILE), tx1 = Math.floor((x + w) / TILE);
-      const ty0 = Math.floor(y / TILE), ty1 = Math.floor((y + h) / TILE);
-      for (let ty = ty0; ty <= ty1; ty++) {
-        for (let tx = tx0; tx <= tx1; tx++) {
-          if (!d.inBounds(tx, ty)) continue;
-          const key = ty * d.w + tx;
-          let list = this.rectBuckets.get(key);
-          if (!list) this.rectBuckets.set(key, (list = []));
-          list.push(rect);
-          this.blocked[key] = 1;
-        }
-      }
-    };
-
-    for (const dec of d.decor) {
-      if (!dec.solid && !SOLID_DECOR.has(dec.kind)) continue;
-      const pl = decorPlacement(dec.kind, dec.x, dec.y);
-      if (!pl) continue;
-      // Inset a little: sprite edges are soft, and the collision box reading
-      // slightly smaller than the art is far kinder than the reverse.
-      const ix = pl.sw * 0.12, iy = pl.sh * 0.12;
-      addRect(pl.dx + ix, pl.dy + iy, pl.sw - ix * 2, pl.sh - iy * 2);
-    }
-
-    // You should have to stand next to these to use them, not on top of them.
-    // `noBlock` is set by the generator on the rare prop that would otherwise
-    // seal a passage - see pruneBlockingProps().
-    for (const prop of d.props) {
-      if (!BLOCKING_PROPS.has(prop.type) || prop.noBlock) continue;
-      addRect(prop.x * TILE + 8, prop.y * TILE + 8, TILE - 16, TILE - 16);
-    }
+    // Built by the same code the generator used to prove the floor walkable.
+    const { rects, buckets, tiles } = buildSolidRects(d, { blockingProps: BLOCKING_PROPS });
+    this.solidRects = rects;
+    this.rectBuckets = buckets;
+    for (let i = 0; i < tiles.length; i++) if (tiles[i]) this.blocked[i] = 1;
   }
 
   /** Does an actor's body at (x, y) overlap a solid prop rectangle? */
   hitsSolidRect(a, x, y) {
-    if (!this.rectBuckets) return false;
-    const d = this.dungeon;
-    const r = a.radius * 0.72;
-    const tx0 = Math.floor((x - r) / TILE), tx1 = Math.floor((x + r) / TILE);
-    const ty0 = Math.floor((y - r) / TILE), ty1 = Math.floor((y + r) / TILE);
-    for (let ty = ty0; ty <= ty1; ty++) {
-      for (let tx = tx0; tx <= tx1; tx++) {
-        const list = this.rectBuckets.get(ty * d.w + tx);
-        if (!list) continue;
-        for (const q of list) {
-          if (x + r > q.x && x - r < q.x + q.w && y + r > q.y && y - r < q.y + q.h) return true;
-        }
-      }
-    }
-    return false;
+    return hitsRect(this.dungeon, this.rectBuckets, x, y, bodyRadius(a));
   }
 
   spawnMonsters() {
@@ -768,66 +711,23 @@ export class World {
    *
    * As well as solid tiles and props, this keeps bodies out of the rock rim
    * that the renderer bleeds over the edges of floor tiles - without it you can
-   * stand inside the wall art. The inset is only applied when the *opposite*
-   * side of the tile is open floor, so a one-tile-wide corridor never becomes
-   * impassable, and very large monsters skip it so bosses cannot wedge in a
-   * doorway.
+   * stand inside the wall art. Very large monsters skip the rim so bosses
+   * cannot wedge in a doorway.
+   *
+   * The geometry itself lives in core/collision.js, because the generator has
+   * to prove every room is reachable using exactly these rules.
    */
   canStep(a, x, y) {
-    const r = a.radius * 0.72;
+    const r = bodyRadius(a);
     const d = this.dungeon;
     if (!d) return true;
     if (this.debug.noclip && a.kind === 'player') {
       return x > 0 && y > 0 && x < d.w * TILE && y < d.h * TILE;
     }
-    const check = (px, py) => {
-      const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
-      if (tx < 0 || ty < 0 || tx >= d.w || ty >= d.h) return true;
-      return d.tiles[ty * d.w + tx] === 0;
-    };
-    if (check(x - r, y - r) || check(x + r, y - r) || check(x - r, y + r) || check(x + r, y + r) || check(x, y)) {
-      return false;
-    }
+    if (hitsRock(d, x, y, r)) return false;
     if (!a.flying && this.hitsSolidRect(a, x, y)) return false;
-
-    // Rim test. The rock art bleeds over the edge of any floor tile that touches
-    // a wall, so the walkable area is smaller than the tile grid says.
-    //
-    // North is measured from the body centre and the other three from the body
-    // edge, which is not an inconsistency: the north face hangs *down* over the
-    // tile below, so a body standing under it reads as being in front of the
-    // cliff and should be allowed to overlap. East, west and south walls are
-    // seen edge-on, and a body overlapping one of those reads as standing
-    // inside the rock.
-    //
-    // Where the two insets on an axis leave no room - a one-tile passage with
-    // rock on both sides - the body is held near the middle of the tile rather
-    // than the constraint being dropped. The old code dropped it, which is why
-    // a character in a narrow corridor could stand halfway into either wall,
-    // and holding the centre keeps the passage walkable regardless.
     if (a.flying || a.radius > 24) return true;
-    const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
-    const lx = x - tx * TILE;
-    const ly = y - ty * TILE;
-
-    // In a passage this narrow the art genuinely covers most of the floor, so
-    // some overlap is unavoidable; the body is centred, which shares it evenly
-    // between the two walls. The window has to stay wide enough to actually
-    // walk down - a couple of pixels is not, at three pixels of travel a tick.
-    const NARROW = 7;
-    const band = (lo, hi) => (lo <= hi ? [lo, hi] : [TILE / 2 - NARROW, TILE / 2 + NARROW]);
-    const [xLo, xHi] = band(
-      d.isSolid(tx - 1, ty) ? RIM_W + r : 0,
-      d.isSolid(tx + 1, ty) ? TILE - RIM_W - r : TILE,
-    );
-    if (lx < xLo || lx > xHi) return false;
-
-    const [yLo, yHi] = band(
-      d.isSolid(tx, ty - 1) ? RIM_N : 0,
-      d.isSolid(tx, ty + 1) ? TILE - RIM_S - r : TILE,
-    );
-    if (ly < yLo || ly > yHi) return false;
-    return true;
+    return !hitsRim(d, x, y, r);
   }
 
   /**

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Dungeon RPG - netcode tests</title>
+<title>Dungeon RPG - tests</title>
 <style>
   :root { color-scheme: dark; }
   body {
@@ -16,6 +16,7 @@
   .row.pass { border-left-color: #4c9a5a; }
   .row.fail { border-left-color: #c04a4a; background: rgba(192,74,74,.08); }
   .name { color: #efe9f2; }
+  .suite { color: #6b6076; font-size: 11px; letter-spacing: .08em; margin-right: 10px; }
   .tag { font-size: 11px; letter-spacing: .1em; margin-right: 10px; }
   .pass .tag { color: #6fc47f; }
   .fail .tag { color: #ff8a8a; }
@@ -29,12 +30,14 @@
 </style>
 </head>
 <body>
-  <h1>NETCODE TESTS</h1>
+  <h1>TESTS</h1>
   <p class="sub">
-    Runs a four-player session - one authoritative host world and three client
-    worlds - through the real protocol and sync code, with the PeerJS transport
-    replaced by direct calls at the same rates and a simulated delay. Each case
-    is named after the symptom it used to produce.
+    <b>Netcode</b> runs a four-player session - one authoritative host world and
+    three client worlds - through the real protocol and sync code, with the
+    PeerJS transport replaced by direct calls at the same rates and a simulated
+    delay. <b>Floors</b> walks generated maps with the real movement collider
+    and proves a body can reach everything the map connects. Each case is named
+    after the symptom it used to produce.
   </p>
   <button id="run">Run tests</button>
   <div id="summary"></div>
@@ -42,6 +45,7 @@
 
 <script type="module">
   import { runNetTests } from './net-tests.js';
+  import { runFloorTests } from './floor-tests.js';
 
   const btn = document.getElementById('run');
   const summary = document.getElementById('summary');
@@ -54,8 +58,13 @@
     // Yield so the browser paints "Running…" before the synchronous suite.
     setTimeout(() => {
       const t0 = performance.now();
-      const res = runNetTests();
+      const suites = [['netcode', runNetTests()], ['floors', runFloorTests()]];
       const ms = Math.round(performance.now() - t0);
+      const res = {
+        passed: suites.reduce((a, [, s]) => a + s.passed, 0),
+        total: suites.reduce((a, [, s]) => a + s.total, 0),
+        results: suites.flatMap(([tag, s]) => s.results.map((r) => ({ ...r, tag }))),
+      };
       const ok = res.passed === res.total;
       summary.innerHTML = `<span style="color:${ok ? '#6fc47f' : '#ff8a8a'}">`
         + `${res.passed} / ${res.total} passed</span> &nbsp;·&nbsp; ${ms} ms`;
@@ -66,6 +75,7 @@
           ? `<pre>${JSON.stringify(r.detail, null, 1)}</pre>`
           : `<pre class="err">${r.error}</pre>`;
         div.innerHTML = `<span class="tag">${r.pass ? 'PASS' : 'FAIL'}</span>`
+          + `<span class="suite">${r.tag}</span>`
           + `<span class="name">${r.name}</span>${detail}`;
         out.appendChild(div);
       }

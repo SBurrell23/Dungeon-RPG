@@ -1,5 +1,6 @@
 import { RNG } from '../core/rng.js';
 import { TILE, SOLID_DECOR, decorPlacement } from '../assets/manifest.js';
+import { RIM_N, RIM_S, RIM_W, decorRect } from '../core/collision.js';
 
 export const VOID = 0;
 export const FLOOR = 1;
@@ -147,6 +148,14 @@ export function generateFloor(seed, floorNo, partySize = 1) {
  * hoping placement never does that, each solid prop is added one at a time and
  * kept only if the reachable set is unchanged. Connectivity is then a proven
  * property of the generated floor rather than an assumption about it.
+ *
+ * This walks tile centres, which is only a proof of anything because of two
+ * facts about the collider it cannot see. A prop blocks every tile its
+ * rectangle touches at all, so two tiles the fill treats as open never have a
+ * prop between them; and core/collision.js guarantees neighbouring tiles share
+ * a walkable band, so an open tile can always be stepped into from an open
+ * neighbour. tests/floor-tests.js checks the result against the real collider,
+ * because that pair of facts is exactly the kind that quietly stops being true.
  */
 function pruneBlockingProps(d) {
   const size = d.w * d.h;
@@ -192,11 +201,10 @@ function pruneBlockingProps(d) {
    * reachable in play.
    */
   const footprint = (kind, tx, ty) => {
-    const pl = decorPlacement(kind, tx, ty);
-    if (!pl) return [d.idx(tx, ty)];
-    const ix = pl.sw * 0.12, iy = pl.sh * 0.12;
-    const x0 = pl.dx + ix, y0 = pl.dy + iy;
-    const x1 = pl.dx + pl.sw - ix, y1 = pl.dy + pl.sh - iy;
+    const rect = decorRect(kind, tx, ty);
+    if (!rect) return [d.idx(tx, ty)];
+    const x0 = rect.x, y0 = rect.y;
+    const x1 = rect.x + rect.w, y1 = rect.y + rect.h;
     const out = [];
     for (let y = Math.floor(y0 / TILE); y <= Math.floor((y1 - 1) / TILE); y++) {
       for (let x = Math.floor(x0 / TILE); x <= Math.floor((x1 - 1) / TILE); x++) {
@@ -1152,16 +1160,6 @@ function decorate(rng, d, floorNo) {
  * the other is a slow tax on walking carelessly. The cycling hazards arrive
  * later, when a party has the health to survive learning them.
  */
-/**
- * How far the rock rim art bleeds over the floor on each side of a wall, in px.
- * Mirrors the offsets in gen/autotile.js drawRim() and the collision insets in
- * game/world.js; all three have to agree or props and bodies disagree with the
- * picture.
- */
-const RIM_N = 18;
-const RIM_S = 18;
-const RIM_W = 20;
-
 const TRAP_KINDS = [
   { kind: 'bear', from: 1, weight: 10 },
   { kind: 'pit', from: 1, weight: 4 },

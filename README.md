@@ -91,6 +91,7 @@ js/
     input.js          keyboard/mouse -> the intent object that also goes on the wire
     events.js         tiny synchronous event bus
     util.js           maths and array helpers
+    collision.js      body-vs-rock geometry, shared by movement and generation
 
   assets/
     manifest.js       every asset path and atlas coordinate in the project
@@ -135,7 +136,8 @@ js/
 tests/
   index.html          test runner page
   net-sim.js          four-player session with the transport taken out
-  net-tests.js        regression cases, each named after the symptom
+  net-tests.js        netcode regression cases, each named after the symptom
+  floor-tests.js      walks generated maps with the real movement collider
 ```
 
 ---
@@ -160,6 +162,25 @@ Where the two insets on an axis leave no room - a one-tile passage with rock
 both sides - the body is held near the middle of the tile rather than the
 constraint being dropped. Dropping it was the old behaviour, and it is why a
 character in a narrow corridor could stand halfway inside either wall.
+
+Per-tile windows alone are not enough, though, because they are a step function
+at the tile boundary while movement is continuous. Two shapes could produce
+windows in neighbouring tiles that barely met or did not meet at all: the mouth
+of a one-wide corridor, where the corridor is relaxed to its middle and the
+tile above is not; and a corridor that jogs sideways, where rock sits on the
+west of one tile and the east of the next, putting the two windows on opposite
+sides with no overlap whatever. A body could not cross that seam however it
+approached, and a single one of them sealed off three quarters of a floor while
+every tile stayed connected to every other - which is exactly why a tile-level
+connectivity check saw nothing wrong.
+
+So neighbouring windows are guaranteed to share a band you can steer through
+(`MIN_OVERLAP`). Where they fall short both are widened by half the shortfall,
+the same amount from either side so the two tiles always agree. It touches
+about 0.3% of floor tiles: only the squeezes that need it.
+
+All of this lives in `core/collision.js` rather than inside the movement code,
+because the generator has to prove floors walkable using exactly these rules.
 
 Decor is checked the same way: props are placed by tile but drawn as a
 bottom-anchored rect often larger than one, so the whole rect is tested against
@@ -369,7 +390,11 @@ item's art is derived from its tier and rarity, so new tiers cost nothing.
 **A new floor theme** — add to `THEMES` in `gen/dungeon.js`: a base floor variant, two
 or three tonally-close accents and an ambient light colour.
 
-### Netcode tests
+### Tests
+
+Open <http://localhost:8123/tests/> and press **Run tests** to run both suites.
+
+#### Netcode
 
 `tests/` runs a four-player session with the transport taken out: one authoritative host
 world and three client worlds in the same page, wired together through the real protocol
@@ -377,7 +402,7 @@ and sync functions at the real rates with a simulated delay. PeerJS is the one p
 cannot be exercised offline, and it is also the part least likely to be wrong - it moves
 tagged envelopes. What breaks is what either side does to a world around them.
 
-Open <http://localhost:8123/tests/> and press **Run tests**, or from the console:
+From the console:
 
 ```js
 const { runNetTests } = await import('/tests/net-tests.js');
@@ -393,6 +418,13 @@ Note that a browser only runs `requestAnimationFrame` for the visible tab, so dr
 several live clients at once in one browser is not possible - which is itself the reason
 the input timeout exists.
 
+#### Floors
+
+`tests/floor-tests.js` generates maps and walks them with the movement collider itself,
+rather than with an approximation of it. Two cases are hand-drawn ASCII maps of the
+shapes that used to seal a floor - a one-wide corridor mouth and a sideways jog - and
+the rest sample real floors across the depth range. See **Generation invariants**.
+
 ### Dev console
 
 Press `Ctrl+Shift+~` mid-run for the testing panel: god mode, noclip,
@@ -404,14 +436,20 @@ verbs normal play uses - there is no separate "cheat" code path to keep in sync.
 
 ### Generation invariants
 
-Two connectivity guarantees, both asserted rather than assumed:
+Three connectivity guarantees, all asserted rather than assumed:
 
 - `pruneDisconnected` keeps only the largest floor region, and the pit pass reverts any
   chasm that would cut the floor in half.
 - `pruneBlockingProps` adds each solid prop one at a time and keeps it only if the
   reachable set is unchanged. Boulders are up to three tiles wide and a torch lands in
   a doorway often enough to matter; without this, either can seal a corridor and strand
-  the stairs. Verified at 100% reachability across every seed and floor tested.
+  the stairs.
+- The two above walk tile centres, which is a test of the map and not of the game. A
+  body has width, and for a while floors generated that were perfectly connected as
+  tiles and still impossible to walk across. `tests/floor-tests.js` floods each floor
+  with the real collider at 6px and asserts that everything the tile grid connects is
+  somewhere a body can actually stand - with tiles under a boulder, which are meant to
+  be unreachable, counted separately from tiles behind one.
 
 ### Debugging
 
