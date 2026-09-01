@@ -34,13 +34,6 @@ export const CURSORS = {
       + '<circle cx="11" cy="11" r="1.4" fill="%23dfe4ee" stroke="%23241a12" stroke-width="1"/>',
     ),
   },
-  arrow: {
-    name: 'Broadhead',
-    css: svg(
-      stroked('<path d="M11 3 L11 19"/><path d="M6.5 8 L11 3 L15.5 8"/>', '%2396e072')
-      + '<circle cx="11" cy="11" r="1.3" fill="%2396e072" stroke="%23241a12" stroke-width="1"/>',
-    ),
-  },
   rune: {
     name: 'Rune',
     css: svg(
@@ -48,11 +41,16 @@ export const CURSORS = {
       + '<circle cx="11" cy="11" r="1.5" fill="%23b48aff" stroke="%23241a12" stroke-width="1"/>',
     ),
   },
-  dot: {
-    name: 'Bare Dot',
+  highvis: {
+    name: 'High Vis',
+    // Deliberately the loudest option: a large hot-pink cross for anyone who
+    // loses the cursor against a dark floor mid-fight.
     css: svg(
-      '<circle cx="11" cy="11" r="3.4" fill="%23241a12"/>'
-      + '<circle cx="11" cy="11" r="2.1" fill="%23ff6b6b"/>',
+      '<g stroke="%23200a18" stroke-width="7" stroke-linecap="round">'
+      + '<path d="M6 6 L22 22"/><path d="M22 6 L6 22"/></g>'
+      + '<g stroke="%23ff2fd0" stroke-width="4" stroke-linecap="round">'
+      + '<path d="M6 6 L22 22"/><path d="M22 6 L6 22"/></g>',
+      28,
     ),
   },
 };

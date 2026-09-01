@@ -12,7 +12,7 @@ import { TILE } from '../assets/manifest.js';
 // Drifting mist
 // ---------------------------------------------------------------------------
 
-const CLOUDS = 7;
+const CLOUDS = 18;
 
 /**
  * Slow banks of mist crossing the floor.
@@ -43,9 +43,12 @@ export function drawMist(ctx, camera, time, seed = 0) {
     x += cx - span / 2;
     y += cy - span / 2;
 
-    const r = 190 + (i % 4) * 90;
+    const r = 150 + (i % 5) * 85;
     const pulse = 0.5 + 0.5 * Math.sin(time * 0.11 + s);
-    ctx.globalAlpha = 0.018 + pulse * 0.020;
+    // Many banks, each barely there. Additive blending stacks where they
+    // overlap, so anything stronger reads as a grey wash over the whole screen
+    // rather than as mist moving through a dungeon.
+    ctx.globalAlpha = 0.014 + pulse * 0.018;
     const g = ctx.createRadialGradient(x, y, r * 0.1, x, y, r);
     g.addColorStop(0, '#cfd6e2');
     g.addColorStop(0.55, 'rgba(150,160,180,0.5)');
@@ -61,6 +64,19 @@ export function drawMist(ctx, camera, time, seed = 0) {
 // ---------------------------------------------------------------------------
 // Something watching
 // ---------------------------------------------------------------------------
+
+/** Eye colours, and how often each turns up. */
+const EYE_COLOURS = ['#d8e070', '#6ce07a', '#ff3a2a'];
+const EYE_WEIGHTS = [0.58, 0.30, 0.12];
+
+function weightedIndex(r) {
+  let acc = 0;
+  for (let i = 0; i < EYE_WEIGHTS.length; i++) {
+    acc += EYE_WEIGHTS[i];
+    if (r < acc) return i;
+  }
+  return 0;
+}
 
 const EYE_LIFE = 5.5;
 const EYE_TRIES = 40;
@@ -98,7 +114,9 @@ export class EyesInTheDark {
       // A little variation so a pair is never quite the same as the last.
       gap: 5 + rand() * 4,
       size: 1.6 + rand() * 1.1,
-      hue: rand() < 0.18 ? '#ff7a5a' : '#d8e070',
+      // Mostly the pale yellow of something watching; sometimes green, and
+      // rarely red, which is the one you notice.
+      hue: EYE_COLOURS[weightedIndex(rand())],
       blinkAt: 1.4 + rand() * 1.6,
       blinkAt2: 3.1 + rand() * 1.4,
       tilt: (rand() - 0.5) * 0.4,

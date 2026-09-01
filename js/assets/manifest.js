@@ -142,8 +142,6 @@ export const IMAGES = {
   trapPushV: 'assets/traps/Push_Trap_Front.png',
   trapPushH: 'assets/traps/Push_Trap_Right.png',
   chests: 'assets/Animated Chests/Chests.png',
-  crypt: 'assets/terrain/RA_Crypt.png',
-  cryptAnim: 'assets/terrain/RA_Crypt_Animations.png',
 };
 
 /**
