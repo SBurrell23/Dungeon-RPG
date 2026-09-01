@@ -277,6 +277,8 @@ h3 { font-size: 12px; letter-spacing: .12em; margin: 0 0 10px; text-transform: u
   background: rgba(0,0,0,.55); color: var(--ink);
 }
 .buffchip.debuff { border-color: #7a2a2a; color: #ffb0b0; }
+/* Bleeding gets blood red rather than the generic debuff pink. */
+.buffchip.bleed { border-color: #a01818; color: #ff4d4d; }
 .buffchip .ic { width: 14px; height: 14px; image-rendering: pixelated; }
 
 #party { position: absolute; left: 16px; top: 172px; display: flex; flex-direction: column; gap: 6px; }

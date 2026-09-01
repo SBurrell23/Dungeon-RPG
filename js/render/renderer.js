@@ -20,6 +20,14 @@ const CHEST_SIZE = 24;
 /** Traps are translucent so they blend into the floor they are set in. */
 const TRAP_OPACITY = 0.72;
 
+/**
+ * Floor spikes, as a fraction of a tile.
+ *
+ * Half the width is a quarter of the footprint, which leaves a bed of them
+ * reading as scattered spikes rather than a paved surface.
+ */
+const PIT_SPIKE_SCALE = 0.5;
+
 /** Seconds of the descent ritual; mirrors DESCENT_TIME in game/world.js. */
 const DESCENT_SECONDS = 10;
 
@@ -240,10 +248,20 @@ export class Renderer {
 
     // Chests are 48x32 art on a 48px tile; keep the aspect and sit it on the
     // floor rather than centring it in the tile.
-    const w = CHEST_SIZE * 1.5;
+    const w = CHEST_SIZE * 2.25;
     const h = w * (fh / fw);
     ctx.save();
     ctx.translate(px + TILE / 2, py + TILE / 2 + 4);
+
+    // A soft shadow so it sits on the floor instead of hovering over it.
+    ctx.save();
+    ctx.globalAlpha = 0.34;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(0, h * 0.42, w * 0.40, h * 0.15, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
     // A stable coin-flip per chest, so a room of them does not all face one way.
     if (((p.x * 73856093) ^ (p.y * 19349663)) & 1) ctx.scale(-1, 1);
     ctx.drawImage(img, sx * fw, sy * fh, fw, fh, -w / 2, -h / 2, w, h);
@@ -284,6 +302,20 @@ export class Renderer {
     const img = def && this.assets.img(def.img);
     if (!img) return;
     const frame = world ? world.trapFrame(p) : 0;
+
+    if (p.kind === 'pit') {
+      // Floor spikes are a scatter, not a slab: a quarter of the tile's
+      // footprint, sitting in the middle of it, and mirrored on a hash of the
+      // tile so a bed of them is not the same sprite stamped in a grid.
+      const size = TILE * PIT_SPIKE_SCALE;
+      ctx.save();
+      ctx.translate(px + TILE / 2, py + TILE / 2);
+      if (((p.x * 73856093) ^ (p.y * 19349663)) & 2) ctx.scale(-1, 1);
+      ctx.drawImage(img, frame * def.fw, 0, def.fw, def.fh, -size / 2, -size / 2, size, size);
+      ctx.restore();
+      return;
+    }
+
     // The art is 32px to a tile; scale it up and hang any extra height (the
     // fire vent's flame) above the tile rather than squashing it into it.
     const scale = TILE / def.fw;

@@ -120,8 +120,8 @@ export class Hud {
     box.innerHTML = '';
     for (const b of player.buffs) {
       if (b.duration > 900) continue;
-      const debuff = ['burn', 'poison', 'chill', 'stun'].includes(b.id);
-      const chip = el('div', `buffchip${debuff ? ' debuff' : ''}`);
+      const debuff = ['burn', 'poison', 'chill', 'stun', 'bleed'].includes(b.id);
+      const chip = el('div', `buffchip${debuff ? ' debuff' : ''}${b.id === 'bleed' ? ' bleed' : ''}`);
       if (b.icon) chip.appendChild(Object.assign(new Image(), { className: 'ic', src: iconUrl(b.icon) }));
       chip.appendChild(el('span', null, `${b.name} ${Math.ceil(b.duration)}s`));
       box.appendChild(chip);

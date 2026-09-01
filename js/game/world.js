@@ -1747,14 +1747,21 @@ export class World {
       const hot = this.trapIsHot(trap);
 
       if (trap.kind === 'pit') {
-        // Always out. Small, steady, and survivable if you keep moving.
-        trap.tick = (trap.tick || 0) - dt;
-        if (trap.tick > 0) continue;
-        trap.tick = PIT_TICK;
+        // Always out, and it bites the moment you set foot in it rather than on
+        // the trap's own schedule - a shared timer meant you could cross one
+        // for free if you happened to arrive just after it ticked.
+        const cd = trap.hits || (trap.hits = new Map());
+        const inside = new Set();
         for (const p of this.playersInTrap(trap)) {
-          this.dealDamage({ source: null, target: p, amount: power * 0.42, type: 'phys' });
+          inside.add(p.id);
+          const left = (cd.get(p.id) || 0) - dt;
+          if (left > 0) { cd.set(p.id, left); continue; }
+          cd.set(p.id, PIT_TICK);
+          this.dealDamage({ source: null, target: p, amount: power * 0.84, type: 'phys' });
           this.sfxAt(p.x, p.y, 'spike');
         }
+        // Stepping out and back in should hurt again, so forget anyone who left.
+        for (const id of [...cd.keys()]) if (!inside.has(id)) cd.delete(id);
         continue;
       }
 
