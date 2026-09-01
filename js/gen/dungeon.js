@@ -940,9 +940,42 @@ function decorate(rng, d, floorNo) {
     }
   }
 
+  /**
+   * Would this prop's art land on a wall, or on the rock the wall bleeds over
+   * its neighbours?
+   *
+   * Decor is placed by tile but drawn as a bottom-anchored rect that is often
+   * wider and taller than one, so checking the anchor tile alone let boulders
+   * and crates ride up into the cliff face. This checks the drawn rect against
+   * the solid tiles themselves and against the rim band each of them casts on
+   * to the floor beside it.
+   */
+  const decorFits = (kind, tx, ty) => {
+    const pl = decorPlacement(kind, tx, ty);
+    if (!pl) return true;
+    const x0 = pl.dx, y0 = pl.dy, x1 = pl.dx + pl.sw, y1 = pl.dy + pl.sh;
+    const t0x = Math.floor(x0 / TILE), t1x = Math.floor((x1 - 1) / TILE);
+    const t0y = Math.floor(y0 / TILE), t1y = Math.floor((y1 - 1) / TILE);
+    for (let y = t0y; y <= t1y; y++) {
+      for (let x = t0x; x <= t1x; x++) {
+        if (!d.inBounds(x, y)) return false;
+        if (d.isSolid(x, y)) return false;
+        // The rim this floor tile carries from its neighbours.
+        const tileTop = y * TILE, tileLeft = x * TILE;
+        if (d.isSolid(x, y - 1) && y0 < tileTop + RIM_N) return false;
+        if (d.isSolid(x, y + 1) && y1 > tileTop + TILE - RIM_S) return false;
+        if (d.isSolid(x - 1, y) && x0 < tileLeft + RIM_W) return false;
+        if (d.isSolid(x + 1, y) && x1 > tileLeft + TILE - RIM_W) return false;
+      }
+    }
+    return true;
+  };
+
   const addDecor = (kind, x, y, solid = false) => {
+    if (!decorFits(kind, x, y)) return false;
     d.decor.push({ kind, x, y, solid });
     take(x, y);
+    return true;
   };
 
   /**
@@ -971,6 +1004,8 @@ function decorate(rng, d, floorNo) {
       if (!freeTile(x, y)) continue;
       const againstWall = d.isSolid(x, y - 1) || d.isSolid(x + 1, y) || d.isSolid(x - 1, y);
       if (!againstWall) continue;
+      // addDecor refuses anything whose art would land on the rock, so these
+      // now gather along the foot of a cliff rather than climbing it.
       if (rng.bool(0.10)) addDecor(rng.pick(WALL_PROPS), x, y);
       else if (rng.bool(0.07)) addDecor(rng.pick(FLORA), x, y);
     }
@@ -1088,6 +1123,16 @@ function decorate(rng, d, floorNo) {
  * the other is a slow tax on walking carelessly. The cycling hazards arrive
  * later, when a party has the health to survive learning them.
  */
+/**
+ * How far the rock rim art bleeds over the floor on each side of a wall, in px.
+ * Mirrors the offsets in gen/autotile.js drawRim() and the collision insets in
+ * game/world.js; all three have to agree or props and bodies disagree with the
+ * picture.
+ */
+const RIM_N = 18;
+const RIM_S = 18;
+const RIM_W = 20;
+
 const TRAP_KINDS = [
   { kind: 'bear', from: 1, weight: 10 },
   { kind: 'pit', from: 1, weight: 4 },

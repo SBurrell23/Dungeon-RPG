@@ -37,11 +37,17 @@ const CELL = 96; // spatial hash cell size in pixels
 const NETWORKED_FX = new Set(['slash', 'thrust', 'stab', 'blast', 'sheet', 'ward', 'spin',
   'chain', 'spikes', 'heal', 'gather']);
 
-// How far the rock rim art bleeds over the floor on each side of a wall, in px.
-// Mirrors the offsets in gen/autotile.js drawRim().
+/**
+ * How far the rock rim art bleeds over the floor on each side of a wall, in px.
+ *
+ * Read straight off gen/autotile.js drawRim(): the side pieces are 24px drawn
+ * with a 4px bite into the wall tile, so they cover 20px of the floor beside
+ * them; the top and bottom faces cover 18px. These were 16 for the sides and
+ * south, which is where bodies standing part-way inside the rock came from.
+ */
 const RIM_N = 18;   // rock face hanging down from the wall above
-const RIM_S = 16;
-const RIM_W = 16;
+const RIM_S = 18;
+const RIM_W = 20;
 
 /** How long you must hold the descent marker, and how close you must stand. */
 export const DESCENT_TIME = 10;
@@ -784,20 +790,43 @@ export class World {
     }
     if (!a.flying && this.hitsSolidRect(a, x, y)) return false;
 
-    // Rim test, applied to the body centre only. Testing the whole hitbox would
-    // reject nearly every tile that touches a wall and carve the floor to
-    // pieces; keeping it to the centre means a tile that is walkable at all
-    // stays walkable, so this can never disconnect the dungeon. Each inset is
-    // also skipped unless the opposite side is open floor, so one-tile
-    // passages keep their full width.
+    // Rim test. The rock art bleeds over the edge of any floor tile that touches
+    // a wall, so the walkable area is smaller than the tile grid says.
+    //
+    // North is measured from the body centre and the other three from the body
+    // edge, which is not an inconsistency: the north face hangs *down* over the
+    // tile below, so a body standing under it reads as being in front of the
+    // cliff and should be allowed to overlap. East, west and south walls are
+    // seen edge-on, and a body overlapping one of those reads as standing
+    // inside the rock.
+    //
+    // Where the two insets on an axis leave no room - a one-tile passage with
+    // rock on both sides - the body is held near the middle of the tile rather
+    // than the constraint being dropped. The old code dropped it, which is why
+    // a character in a narrow corridor could stand halfway into either wall,
+    // and holding the centre keeps the passage walkable regardless.
     if (a.flying || a.radius > 24) return true;
     const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
     const lx = x - tx * TILE;
     const ly = y - ty * TILE;
-    if (ly < RIM_N && d.isSolid(tx, ty - 1) && d.isFloor(tx, ty + 1)) return false;
-    if (ly > TILE - RIM_S && d.isSolid(tx, ty + 1) && d.isFloor(tx, ty - 1)) return false;
-    if (lx < RIM_W && d.isSolid(tx - 1, ty) && d.isFloor(tx + 1, ty)) return false;
-    if (lx > TILE - RIM_W && d.isSolid(tx + 1, ty) && d.isFloor(tx - 1, ty)) return false;
+
+    // In a passage this narrow the art genuinely covers most of the floor, so
+    // some overlap is unavoidable; the body is centred, which shares it evenly
+    // between the two walls. The window has to stay wide enough to actually
+    // walk down - a couple of pixels is not, at three pixels of travel a tick.
+    const NARROW = 7;
+    const band = (lo, hi) => (lo <= hi ? [lo, hi] : [TILE / 2 - NARROW, TILE / 2 + NARROW]);
+    const [xLo, xHi] = band(
+      d.isSolid(tx - 1, ty) ? RIM_W + r : 0,
+      d.isSolid(tx + 1, ty) ? TILE - RIM_W - r : TILE,
+    );
+    if (lx < xLo || lx > xHi) return false;
+
+    const [yLo, yHi] = band(
+      d.isSolid(tx, ty - 1) ? RIM_N : 0,
+      d.isSolid(tx, ty + 1) ? TILE - RIM_S - r : TILE,
+    );
+    if (ly < yLo || ly > yHi) return false;
     return true;
   }
 

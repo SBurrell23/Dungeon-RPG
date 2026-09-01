@@ -142,6 +142,29 @@ tests/
 
 ## Design notes
 
+### Bodies stop at the art, not at the grid
+
+The rock rim bleeds over the edge of any floor tile that touches a wall, so the
+walkable area is smaller than the tile grid says. The insets in `canStep` are
+read straight off `drawRim`: the side pieces are 24px drawn with a 4px bite into
+the wall tile, so they cover 20px of the floor beside them, and the faces cover
+18px.
+
+North is measured from the body's centre and the other three from its edge.
+That is deliberate rather than inconsistent: the north face hangs *down* over
+the tile below, so a body standing under it reads as being in front of the
+cliff, while a body overlapping an east, west or south wall reads as standing
+inside the rock.
+
+Where the two insets on an axis leave no room - a one-tile passage with rock
+both sides - the body is held near the middle of the tile rather than the
+constraint being dropped. Dropping it was the old behaviour, and it is why a
+character in a narrow corridor could stand halfway inside either wall.
+
+Decor is checked the same way: props are placed by tile but drawn as a
+bottom-anchored rect often larger than one, so the whole rect is tested against
+the solid tiles and against the rim each of them casts.
+
 ### Music follows the fight
 
 Two tracks play at once and only one is turned up, so entering a boss chamber is
