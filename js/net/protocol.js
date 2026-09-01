@@ -19,6 +19,7 @@ export const MSG = {
   FLOOR: 'floor',       // host -> client: floor contents (spawn manifest)
   SNAP: 'snap',         // host -> client: per-tick dynamic state
   SELF: 'self',         // host -> client: your own character in full
+  MINE: 'mine',         // host -> client: your own volatile numbers, often
   EVENT: 'event',       // host -> client: discrete happenings
   INPUT: 'input',       // client -> host: movement/attack intent
   ACT: 'act',           // client -> host: inventory / shop / descend request
@@ -30,6 +31,8 @@ export const MSG = {
 /** How often the host ships a snapshot. Clients interpolate between them. */
 export const SNAPSHOT_HZ = 20;
 export const INPUT_HZ = 30;
+/** Per-peer personal state (xp, mana, cooldowns, gold). Small, so it can be frequent. */
+export const PERSONAL_HZ = 10;
 
 const RELEVANCE = 1500;   // px; entities beyond this are not worth sending
 const MAX_MOBS = 90;
@@ -77,9 +80,13 @@ export function buildSnapshot(world) {
 
   const zones = world.zones.map((z) => [Math.round(z.x), Math.round(z.y), Math.round(z.radius), z.color, +(z.duration - z.elapsed).toFixed(1)]);
 
+  // Ids the host has retired since the last snapshot.
+  const gone = world.removedIds.length ? world.removedIds.slice() : undefined;
+  world.removedIds.length = 0;
+
   return {
     t: world.time,
-    players, mobs, projectiles, pickups, zones,
+    players, mobs, projectiles, pickups, zones, gone,
     descent: [world.descent.playerId || 0, +world.descent.progress.toFixed(2), +world.descent.flash.toFixed(2)],
     shake: Math.round(world.shakeAmount),
   };
@@ -104,7 +111,10 @@ export function applySnapshot(world, snap) {
       if (dist2(p.x, p.y, row[1], row[2]) > 220 * 220) { p.x = row[1]; p.y = row[2]; }
     }
     p.hp = row[4];
-    if (p !== world.localPlayer) p.mp = row[5];
+    // Applies to the local player too: a client does not simulate its own
+    // casting, so without this its mana bar regenerates to full and sits there
+    // while the host has it spending mana on every basic attack.
+    p.mp = row[5];
     p.anim.key = row[6];
     p.anim.t = row[7];
     p.level = row[8];
@@ -115,6 +125,12 @@ export function applySnapshot(world, snap) {
     p.stats.maxMp = row[12];
   }
 
+  if (snap.gone && snap.gone.length) {
+    const dropped = new Set(snap.gone);
+    for (const id of dropped) world.byId.delete(id);
+    world.monsters = world.monsters.filter((m) => !dropped.has(m.id));
+  }
+
   const seen = new Set();
   for (const row of snap.mobs) {
     seen.add(row[0]);
@@ -122,8 +138,10 @@ export function applySnapshot(world, snap) {
     if (!m) continue;
     // Snap on a big jump (teleport, first sight), interpolate otherwise.
     const dx = row[1] - m.x, dy = row[2] - m.y;
+    // Retarget in both cases. Snapping without moving the target left the body
+    // easing back toward its previous position until the next snapshot.
     if (dx * dx + dy * dy > 200 * 200) { m.x = row[1]; m.y = row[2]; }
-    else { m.tx = row[1]; m.ty = row[2]; }
+    m.tx = row[1]; m.ty = row[2];
     m.facing = row[3];
     m.hp = row[4];
     m.anim.key = row[5];
@@ -172,6 +190,9 @@ export function buildFloorManifest(world) {
 }
 
 export function applyFloorManifest(world, manifest) {
+  // Drop the previous floor's entities from the id index; otherwise it grows by
+  // a few hundred stale entries per floor for the length of a run.
+  for (const m of world.monsters) world.byId.delete(m.id);
   world.monsters = [];
   for (const row of manifest.monsters) {
     const boss = row[4] ? bossForFloor(row[4]) : null;
@@ -244,4 +265,62 @@ export function applyPlayerFull(p, data) {
     stats: data.stats, stat: data.stat, buffs: data.buffs,
     cooldowns: data.cooldowns,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Personal state
+// ---------------------------------------------------------------------------
+
+/**
+ * The volatile numbers that belong to one player and cannot ride the shared
+ * snapshot.
+ *
+ * XP, gold and cooldowns used to travel only inside the full SELF message,
+ * which the host sent on inventory actions and floor changes - so on a client
+ * the XP bar never moved while killing things, gold never ticked up, and the
+ * hotbar never showed a cooldown. This goes out to its owner several times a
+ * second and is small enough to do so.
+ */
+export function buildPersonal(p) {
+  const cds = {};
+  for (const k in p.cooldowns) {
+    const v = p.cooldowns[k];
+    if (v > 0.05) cds[k] = +v.toFixed(2);
+  }
+  return {
+    id: p.id,
+    xp: p.xp,
+    level: p.level,
+    gold: p.gold,
+    mp: Math.round(p.mp),
+    unspentPoints: p.unspentPoints,
+    cooldowns: cds,
+    attackCd: +p.attackCd.toFixed(2),
+    dashCd: +p.dashCd.toFixed(2),
+    rev: selfSignature(p),
+  };
+}
+
+export function applyPersonal(p, d) {
+  p.xp = d.xp;
+  p.level = d.level;
+  p.gold = d.gold;
+  p.mp = d.mp;
+  p.unspentPoints = d.unspentPoints;
+  p.cooldowns = d.cooldowns;
+  p.attackCd = d.attackCd;
+  p.dashCd = d.dashCd;
+}
+
+/**
+ * Cheap fingerprint of the state that only the full SELF message carries.
+ *
+ * Hooking every mutation site would be easy to forget one of; comparing a
+ * fingerprint each tick cannot miss a change, however it happened.
+ */
+export function selfSignature(p) {
+  let sig = `${p.inventory.length}|${p.knownSpells.length}|${p.hotbar.join(',')}|${p.unspentPoints}|${p.allocated ? Object.values(p.allocated).join('.') : ''}`;
+  for (const slot in p.equipment) sig += `|${p.equipment[slot]?.uid ?? 0}`;
+  for (const it of p.inventory) sig += `|${it.uid ?? it.id}:${it.qty ?? 1}`;
+  return sig;
 }

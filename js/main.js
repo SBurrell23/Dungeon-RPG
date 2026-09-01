@@ -1,5 +1,8 @@
 import { assets } from './assets/loader.js';
 import { Input, mergeIntents, EMPTY_INTENT } from './core/input.js';
+import {
+  acceptInput, consumeIntent, predictLocal, reconcile, neutralIntent, INPUT_TIMEOUT,
+} from './net/sync.js';
 import { GameLoop } from './core/loop.js';
 import { bus } from './core/events.js';
 import { randomSeedString } from './core/rng.js';
@@ -33,7 +36,8 @@ import { initMusic, startMusic, setMusicVolume, setDepth } from './audio/music.j
 
 import { Net } from './net/net.js';
 import {
-  MSG, SNAPSHOT_HZ, INPUT_HZ, buildSnapshot, applySnapshot,
+  MSG, SNAPSHOT_HZ, INPUT_HZ, PERSONAL_HZ, buildSnapshot, applySnapshot,
+  buildPersonal, applyPersonal, selfSignature,
   buildFloorManifest, applyFloorManifest, serialisePlayerFull, applyPlayerFull,
 } from './net/protocol.js';
 
@@ -58,6 +62,9 @@ const game = {
   lobby: null,
   roster: [],              // lobby entries: {peerId, name, classId, ready, isHost}
   intents: new Map(),      // playerId -> merged intent (host)
+  selfSigs: new Map(),     // playerId -> last-sent SELF fingerprint (host)
+  inputSeen: new Map(),    // playerId -> runTime of their last input packet (host)
+  lastPersonal: 0,
   pendingIntent: null,     // client-side accumulator
   playerName: 'Adventurer',
   isOnline: false,
@@ -915,6 +922,12 @@ net.on(MSG.SELF, (d) => {
   }
 });
 
+net.on(MSG.MINE, (d) => {
+  const p = game.world?.byId.get(d.id);
+  if (!p) return;
+  applyPersonal(p, d);
+});
+
 net.on(MSG.EVENT, (list) => {
   const world = game.world;
   if (!world) return;
@@ -943,7 +956,8 @@ net.on(MSG.INPUT, (d, peerId) => {
   if (!net.isHost || !game.world) return;
   const p = game.world.players.find((pl) => pl.peerId === peerId);
   if (!p) return;
-  game.intents.set(p.id, mergeIntents(game.intents.get(p.id), d));
+  game.intents.set(p.id, acceptInput(game.intents.get(p.id), d));
+  game.inputSeen.set(p.id, game.world.runTime);
 });
 
 net.on(MSG.GAMEOVER, (d) => {
@@ -1020,6 +1034,23 @@ function sendSelf(p) {
   net.sendTo(p.peerId, MSG.SELF, serialisePlayerFull(p));
 }
 
+/**
+ * Push each remote player their own volatile numbers, and a full SELF whenever
+ * something the snapshot cannot describe has changed.
+ */
+function sendPersonal(world) {
+  for (const p of world.players) {
+    if (!p.peerId || p.peerId === net.myPeerId) continue;
+    const sig = selfSignature(p);
+    if (game.selfSigs.get(p.id) !== sig) {
+      game.selfSigs.set(p.id, sig);
+      sendSelf(p);
+      continue;              // SELF already carries everything MINE would
+    }
+    net.sendTo(p.peerId, MSG.MINE, buildPersonal(p));
+  }
+}
+
 function sendAllSelf() {
   if (!game.isOnline || !net.isHost) return;
   for (const p of game.world.players) sendSelf(p);
@@ -1066,11 +1097,22 @@ function update(dt) {
     if (intent.interact) clientInteractUi(world, localPlayer);
   } else {
     game.intents.set(localPlayer?.id, intent);
-    world.update(dt, game.intents);
-    // Edge-triggered flags are consumed by the tick that saw them.
-    for (const [id, v] of game.intents) {
-      game.intents.set(id, { ...v, slots: [false, false, false, false], useHp: false, useMp: false, interact: false, attack: v.attack });
+    // Drop the held inputs of anyone who has gone quiet, so a client that
+    // stopped sending does not leave its character running and swinging.
+    if (game.isOnline) {
+      for (const p of world.players) {
+        if (p === localPlayer) continue;
+        const seen = game.inputSeen.get(p.id) ?? 0;
+        if (world.runTime - seen > INPUT_TIMEOUT) {
+          const held = game.intents.get(p.id);
+          if (held && (held.attack || held.mx || held.my)) game.intents.set(p.id, neutralIntent(held));
+        }
+      }
     }
+    world.update(dt, game.intents);
+    // Edge-triggered flags are consumed by the tick that saw them; held inputs
+    // stay until the next packet replaces them.
+    for (const [id, v] of game.intents) game.intents.set(id, consumeIntent(v));
   }
 
   if (game.revealAll) world.explored.fill(1);
@@ -1084,6 +1126,11 @@ function update(dt) {
       net.broadcast(MSG.SNAP, buildSnapshot(world));
       const events = world.drainEvents();
       if (events.length) net.broadcast(MSG.EVENT, events);
+    }
+    game.lastPersonal += dt;
+    if (game.lastPersonal >= 1 / PERSONAL_HZ) {
+      game.lastPersonal = 0;
+      sendPersonal(world);
     }
   } else if (!game.isOnline) {
     world.drainEvents();
@@ -1122,35 +1169,7 @@ function clientInteractUi(world, player) {
 }
 
 /** Client-side prediction: run the same movement integration the host will. */
-function predictLocal(world, p, intent, dt) {
-  if (!p || p.downed) return;
-  recomputeStats(p, getClass(p.classId));
-  const speed = p.stats.moveSpeed;
-  if (intent.mx || intent.my) {
-    const k = clamp(dt * 22, 0, 1);
-    p.vx += (intent.mx * speed - p.vx) * k;
-    p.vy += (intent.my * speed - p.vy) * k;
-  } else {
-    const k = clamp(dt * 26, 0, 1);
-    p.vx += (0 - p.vx) * k;
-    p.vy += (0 - p.vy) * k;
-  }
-  p.facing = intent.aim;
-  world.integrate(p, dt);
-}
 
-function reconcile(p) {
-  if (!p || p.netX == null) return;
-  const err2 = dist2(p.x, p.y, p.netX, p.netY);
-  if (err2 > 90 * 90) {
-    // Too far out to blend - the host knows something we do not (a knockback,
-    // a wall we predicted through). Snap.
-    p.x = p.netX; p.y = p.netY;
-  } else if (err2 > 4) {
-    p.x += (p.netX - p.x) * 0.12;
-    p.y += (p.netY - p.y) * 0.12;
-  }
-}
 
 function render(alpha, dt) {
   const world = game.world;

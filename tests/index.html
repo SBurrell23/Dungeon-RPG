@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dungeon RPG - netcode tests</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 28px; background: #0b090e; color: #d8d2dc;
+    font: 13px/1.6 "Courier New", monospace;
+  }
+  h1 { font-size: 16px; letter-spacing: .12em; color: #e8b45a; margin: 0 0 4px; }
+  p.sub { color: #7c7285; margin: 0 0 20px; max-width: 70ch; }
+  #summary { font-size: 15px; margin: 16px 0; }
+  .row { border-left: 3px solid #2a2230; padding: 8px 14px; margin: 6px 0; background: rgba(255,255,255,.02); }
+  .row.pass { border-left-color: #4c9a5a; }
+  .row.fail { border-left-color: #c04a4a; background: rgba(192,74,74,.08); }
+  .name { color: #efe9f2; }
+  .tag { font-size: 11px; letter-spacing: .1em; margin-right: 10px; }
+  .pass .tag { color: #6fc47f; }
+  .fail .tag { color: #ff8a8a; }
+  pre { margin: 6px 0 0; color: #8d8496; white-space: pre-wrap; font-size: 11px; }
+  .err { color: #ff9a9a; }
+  button {
+    font: inherit; background: #1c1622; color: #e8b45a; border: 1px solid #4a3f52;
+    padding: 8px 18px; cursor: pointer; letter-spacing: .08em;
+  }
+  button:hover { background: #261e2e; }
+</style>
+</head>
+<body>
+  <h1>NETCODE TESTS</h1>
+  <p class="sub">
+    Runs a four-player session - one authoritative host world and three client
+    worlds - through the real protocol and sync code, with the PeerJS transport
+    replaced by direct calls at the same rates and a simulated delay. Each case
+    is named after the symptom it used to produce.
+  </p>
+  <button id="run">Run tests</button>
+  <div id="summary"></div>
+  <div id="out"></div>
+
+<script type="module">
+  import { runNetTests } from './net-tests.js';
+
+  const btn = document.getElementById('run');
+  const summary = document.getElementById('summary');
+  const out = document.getElementById('out');
+
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    summary.textContent = 'Running…';
+    out.innerHTML = '';
+    // Yield so the browser paints "Running…" before the synchronous suite.
+    setTimeout(() => {
+      const t0 = performance.now();
+      const res = runNetTests();
+      const ms = Math.round(performance.now() - t0);
+      const ok = res.passed === res.total;
+      summary.innerHTML = `<span style="color:${ok ? '#6fc47f' : '#ff8a8a'}">`
+        + `${res.passed} / ${res.total} passed</span> &nbsp;·&nbsp; ${ms} ms`;
+      for (const r of res.results) {
+        const div = document.createElement('div');
+        div.className = `row ${r.pass ? 'pass' : 'fail'}`;
+        const detail = r.pass
+          ? `<pre>${JSON.stringify(r.detail, null, 1)}</pre>`
+          : `<pre class="err">${r.error}</pre>`;
+        div.innerHTML = `<span class="tag">${r.pass ? 'PASS' : 'FAIL'}</span>`
+          + `<span class="name">${r.name}</span>${detail}`;
+        out.appendChild(div);
+      }
+      btn.disabled = false;
+    }, 30);
+  });
+</script>
+</body>
+</html>

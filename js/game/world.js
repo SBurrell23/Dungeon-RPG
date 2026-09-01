@@ -77,6 +77,7 @@ export class World {
     this.fx = [];
     this.floaters = [];
     this.timers = [];
+    this.removedIds = [];
 
     this.byId = new Map();
     this.grid = new Map();
@@ -127,6 +128,7 @@ export class World {
     this.fx = [];
     this.floaters = [];
     this.timers = [];
+    this.removedIds = [];
     this.byId = new Map();
     this.descent = { playerId: null, progress: 0, flash: 0 };
     this.state = 'playing';
@@ -382,7 +384,14 @@ export class World {
         if (m.dead && m.deathTimer > 30) m.expired = true;
       }
       retain(this.monsters, (m) => {
-        if (m.expired) { this.byId.delete(m.id); return false; }
+        if (m.expired) {
+          this.byId.delete(m.id);
+          // Clients cannot tell "gone" from "too far to send", so removals have
+          // to be stated. Without this a corpse the host has cleaned up stays
+          // on every client's floor for the rest of the run.
+          this.removedIds.push(m.id);
+          return false;
+        }
         return true;
       });
 

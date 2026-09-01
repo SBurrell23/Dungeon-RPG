@@ -101,11 +101,18 @@ export class Input {
   }
 }
 
-/** Merge queued edge-triggered flags so nothing is lost between network ticks. */
+/**
+ * Client-side accumulator: fold this frame's sample into what we will ship next.
+ *
+ * The client samples at 60 Hz and sends at 30, so one-shot flags are OR-ed to
+ * make sure a quick tap between sends is not swallowed. Held inputs - including
+ * the aim point, which used to be dropped here and left remote players' aimed
+ * abilities firing at a stale target - take the latest value.
+ */
 export function mergeIntents(acc, next) {
   if (!acc) return next;
   return {
-    mx: next.mx, my: next.my, aim: next.aim,
+    mx: next.mx, my: next.my, aim: next.aim, aimX: next.aimX, aimY: next.aimY,
     attack: acc.attack || next.attack,
     dash: acc.dash || next.dash,
     slots: acc.slots.map((v, i) => v || next.slots[i]),
@@ -116,6 +123,6 @@ export function mergeIntents(acc, next) {
 }
 
 export const EMPTY_INTENT = {
-  mx: 0, my: 0, aim: 0, attack: false, dash: false,
+  mx: 0, my: 0, aim: 0, aimX: 0, aimY: 0, attack: false, dash: false,
   slots: [false, false, false, false], useHp: false, useMp: false, interact: false,
 };

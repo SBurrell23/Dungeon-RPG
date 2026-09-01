@@ -127,6 +127,12 @@ js/
   net/
     net.js            PeerJS transport (star topology, host at the centre)
     protocol.js       message types, snapshot encoding, floor manifests
+    sync.js           prediction, reconciliation, host-side intent bookkeeping
+
+tests/
+  index.html          test runner page
+  net-sim.js          four-player session with the transport taken out
+  net-tests.js        regression cases, each named after the symptom
 ```
 
 ---
@@ -210,10 +216,26 @@ second copy of the AI anywhere, so there is nothing to desync.
 
 Clients send an intent packet at 30 Hz; the host broadcasts a snapshot at 20 Hz plus a
 compact event stream for the things a snapshot cannot express (damage numbers, sounds,
-level-ups, chest opens). Inventory changes are request/response: the client asks, the
-host applies, the host returns the authoritative character.
+level-ups, chest opens). Alongside those, each client gets its own volatile numbers -
+xp, gold, mana, cooldowns - at 10 Hz, because the shared snapshot has no room for
+per-player detail and waiting for the next inventory action to carry them left the xp
+bar frozen. Inventory changes are request/response: the client asks, the host applies,
+the host returns the authoritative character.
 
-Snapshots only include monsters within 1500px of a player, capped at 90.
+Snapshots only include monsters within 1500px of a player, capped at 90, and carry the
+ids of any the host has retired so a corpse does not linger on every client.
+
+An intent separates *held* inputs (movement, aim, the attack button) from *edge* flags
+(dash, ability slots, use-potion, interact). Held inputs come from the latest packet, so
+releasing a button turns them off; edge flags are OR-ed in so a tap between two sends is
+not swallowed, then cleared by the tick that acts on them. Held inputs persist between
+packets - a walking player keeps walking - but only for `INPUT_TIMEOUT` (0.6s). Past
+that the host treats the client as gone quiet and neutralises the intent, which is what
+stops an alt-tabbed player (browsers suspend a hidden tab's frame loop, so it stops
+sending) from running into a wall swinging forever.
+
+`js/net/sync.js` holds the parts of this that are pure state transforms, which is what
+makes them testable without a transport - see **Netcode tests** below.
 
 ### The ability API is the extension point
 
@@ -266,6 +288,30 @@ item's art is derived from its tier and rarity, so new tiers cost nothing.
 
 **A new floor theme** — add to `THEMES` in `gen/dungeon.js`: a base floor variant, two
 or three tonally-close accents and an ambient light colour.
+
+### Netcode tests
+
+`tests/` runs a four-player session with the transport taken out: one authoritative host
+world and three client worlds in the same page, wired together through the real protocol
+and sync functions at the real rates with a simulated delay. PeerJS is the one part that
+cannot be exercised offline, and it is also the part least likely to be wrong - it moves
+tagged envelopes. What breaks is what either side does to a world around them.
+
+Open <http://localhost:8123/tests/> and press **Run tests**, or from the console:
+
+```js
+const { runNetTests } = await import('/tests/net-tests.js');
+console.table(runNetTests().results);
+```
+
+Each case is named after the symptom it used to produce ("a client that goes quiet stops
+acting"), because that is how it will be recognised if it comes back. `NetSim` in
+`tests/net-sim.js` also exposes `divergence()` and `monsterSync()` for poking at a
+scenario by hand.
+
+Note that a browser only runs `requestAnimationFrame` for the visible tab, so driving
+several live clients at once in one browser is not possible - which is itself the reason
+the input timeout exists.
 
 ### Dev console
 
