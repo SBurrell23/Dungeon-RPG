@@ -971,10 +971,22 @@ function decorate(rng, d, floorNo) {
     return true;
   };
 
-  const addDecor = (kind, x, y, solid = false) => {
+  /** Tiles already carrying flat scatter, so it does not pile up on itself. */
+  const scattered = new Set();
+
+  /**
+   * @param {boolean} [occupy] whether this prop claims the tile.
+   *
+   * Solid furniture does; grass and pebbles do not. Reserving a tile for a
+   * tuft of grass was quietly starving traps, chests and everything else that
+   * competes for open floor, which is why the density could never go up.
+   */
+  const addDecor = (kind, x, y, solid = false, occupy = true) => {
     if (!decorFits(kind, x, y)) return false;
+    if (!occupy && scattered.has(key(x, y))) return false;
     d.decor.push({ kind, x, y, solid });
-    take(x, y);
+    if (occupy) take(x, y);
+    else scattered.add(key(x, y));
     return true;
   };
 
@@ -1006,17 +1018,34 @@ function decorate(rng, d, floorNo) {
       if (!againstWall) continue;
       // addDecor refuses anything whose art would land on the rock, so these
       // now gather along the foot of a cliff rather than climbing it.
-      if (rng.bool(0.10)) addDecor(rng.pick(WALL_PROPS), x, y);
-      else if (rng.bool(0.07)) addDecor(rng.pick(FLORA), x, y);
+      if (rng.bool(0.14)) addDecor(rng.pick(WALL_PROPS), x, y);
+      else if (rng.bool(0.34)) addDecor(rng.pick(FLORA), x, y, false, false);
     }
   }
 
-  // Loose ground scatter everywhere at low density.
-  const scatterCount = Math.floor(d.w * d.h * 0.012);
+  // Loose ground scatter and greenery everywhere. None of it claims its tile,
+  // so this can be dense without pushing anything else off the floor.
+  const scatterCount = Math.floor(d.w * d.h * 0.075);
   for (let i = 0; i < scatterCount; i++) {
     const x = rng.int(2, d.w - 3), y = rng.int(2, d.h - 3);
-    if (!freeTile(x, y)) continue;
-    addDecor(rng.pick(GROUND_SCATTER), x, y);
+    if (!d.isFloor(x, y)) continue;
+    const pool = rng.bool(0.34) ? FLORA : GROUND_SCATTER;
+    addDecor(rng.pick(pool), x, y, false, false);
+  }
+
+  // A second, clumpier pass: growth gathers rather than spreading evenly, so
+  // seeds are dropped and grown outward a little.
+  const clumps = Math.floor(d.w * d.h * 0.004);
+  for (let i = 0; i < clumps; i++) {
+    const cx = rng.int(3, d.w - 4), cy = rng.int(3, d.h - 4);
+    if (!d.isFloor(cx, cy)) continue;
+    const pool = rng.bool(0.55) ? FLORA : GROUND_SCATTER;
+    const n = rng.int(3, 7);
+    for (let k = 0; k < n; k++) {
+      const x = cx + rng.int(-2, 2), y = cy + rng.int(-2, 2);
+      if (!d.isFloor(x, y)) continue;
+      addDecor(rng.pick(pool), x, y, false, false);
+    }
   }
 
   for (const room of d.rooms) {
@@ -1222,7 +1251,10 @@ function corridorSpan(d, x, y) {
 
 function placeTraps(rng, d, floorNo, freeTile, take) {
   const shadow = decorShadow(d);
-  const density = 0.0011 + floorNo * 0.0006;
+  // Raised at the shallow end: floor one was running about one trap to every
+  // hundred tiles of floor, which with hidden bear traps meant a party could
+  // cross the whole level without meeting one. The deep end is unchanged.
+  const density = 0.0020 + floorNo * 0.00055;
   const target = Math.floor(d.w * d.h * density);
   const pool = TRAP_KINDS.filter((k) => floorNo >= k.from);
 

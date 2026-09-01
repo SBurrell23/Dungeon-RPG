@@ -28,7 +28,7 @@ const TRAP_OPACITY = 0.72;
  * pave over the floor. Deliberately a whisper: the bed is meant to be a hint in
  * the stone rather than a feature of it.
  */
-const PIT_SPIKE_ALPHA = 0.05;
+const PIT_SPIKE_ALPHA = 0.15;
 
 /** Seconds of the descent ritual; mirrors DESCENT_TIME in game/world.js. */
 const DESCENT_SECONDS = 10;
