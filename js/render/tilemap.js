@@ -17,11 +17,24 @@ const FADE_PAD = 3;
  * the size of the pixel art's own detail.
  */
 const FADE_CELLS = 6;
-/** Distance from walkable ground, in tiles, over which the dark closes in. */
+/**
+ * Distance from walkable ground, in tiles, over which the dark closes in.
+ *
+ * Deliberately inside one tile. The tileset only draws rock on the ring of
+ * solid tiles touching floor - everything past that is already void - so a fade
+ * that reached full black at two tiles did all its crumbling over ground that
+ * was black anyway, leaving the straight edge of the art itself untouched. The
+ * erosion has to happen *within* that one ring to be visible at all.
+ */
 const FADE_START = 0.55;
-const FADE_END = 1.85;
-/** How far the noise can push that boundary either way, in tiles. */
-const FADE_JITTER = 0.55;
+const FADE_END = 1.45;
+/**
+ * How far the noise can push that boundary either way, in tiles.
+ *
+ * Kept just under FADE_START so that even at its most generous the noise
+ * cannot reach a floor tile's centre and darken ground people walk on.
+ */
+const FADE_JITTER = 0.45;
 const VOID_RGB = [10, 8, 10];
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -42,9 +55,16 @@ function valueNoise(x, y) {
   return (a + (b - a) * xf) + ((c + (d - c) * xf) - (a + (b - a) * xf)) * yf;
 }
 
-/** Two octaves: a broad wander plus a finer crumble along the edge. */
+/**
+ * Three octaves: a broad wander, a crumble, and a fine bite.
+ *
+ * The finest is close to the mask's own cell size, which is what turns a smooth
+ * undulating boundary into something that reads as broken stone.
+ */
 function edgeNoise(x, y) {
-  return valueNoise(x * 0.9, y * 0.9) * 0.66 + valueNoise(x * 2.7, y * 2.7) * 0.34;
+  return valueNoise(x * 0.8, y * 0.8) * 0.5
+    + valueNoise(x * 2.3, y * 2.3) * 0.32
+    + valueNoise(x * 5.1, y * 5.1) * 0.18;
 }
 
 /**
@@ -245,7 +265,12 @@ export class TileMap {
 
     // Distance in tiles at any point, bilinear over the per-tile field, so the
     // threshold moves continuously instead of stepping at tile borders.
-    const distAt = (tx, ty) => {
+    const distAt = (txc, tyc) => {
+      // The field holds one value per tile, which belongs at that tile's
+      // centre. Interpolating straight off integer coordinates treats it as a
+      // corner value, which reads half a tile short - enough that floor next to
+      // rock measured as half a tile from itself and got darkened.
+      const tx = txc - 0.5, ty = tyc - 0.5;
       const fx = Math.floor(tx), fy = Math.floor(ty);
       const ax = tx - fx, ay = ty - fy;
       const at = (X, Y) => (d.inBounds(X, Y) ? dist[d.idx(X, Y)] : 12);
