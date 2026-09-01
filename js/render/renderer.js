@@ -548,7 +548,7 @@ export class Renderer {
     }
 
     for (const p of world.players) {
-      if (p === localPlayer || p.dead) continue;
+      if (p.dead) continue;
       if (!camera.isVisible(p.x, p.y, 100)) continue;
       const top = p.y - p.radius - 22;
       const frac = clamp(p.hp / p.stats.maxHp, 0, 1);
@@ -556,6 +556,9 @@ export class Renderer {
       ctx.fillRect(p.x - 22, top - 1, 44, 6);
       ctx.fillStyle = p.downed ? '#666' : '#4caf50';
       ctx.fillRect(p.x - 21, top, 42 * frac, 4);
+      // Your own bar, but without the name tag - you know who you are, and the
+      // label would sit under the cursor all game.
+      if (p === localPlayer) continue;
       ctx.fillStyle = CLASSES[p.classId]?.color || '#fff';
       ctx.fillText(`${p.name}${p.downed ? ' (down)' : ''}`, p.x, top - 3);
     }

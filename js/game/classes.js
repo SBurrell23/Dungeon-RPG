@@ -72,6 +72,7 @@ export const CLASSES = {
     base: { hp: 82, mp: 44, str: 4, dex: 12, int: 4, vit: 5, speed: 121 },
     growth: { hp: 8.5, mp: 3.2, str: 0.4, dex: 2.0, int: 0.5, vit: 0.85 },
     unarmedDamage: 4,
+    mpRegenMult: 2,
     weaponFamily: 'bow',
     basicAttack: 'shoot',
     ability: 'multishot',

@@ -127,7 +127,10 @@ export function recomputeStats(actor, classDef) {
   s.attackSpeed = clamp(1 + dex * 0.005 + mods.attackSpeed, 0.5, 2.6);
   s.cooldownMult = clamp(1 - mods.cooldown, 0.4, 1);
   s.hpRegen = 0.35 + vit * 0.035 + mods.hpRegen;
-  s.mpRegen = 0.9 + int * 0.06 + mods.mpRegen;
+  // A class may carry its own regen multiplier. The archer has one: its
+  // basic attack costs mana but its intellect is low, so it recovers far
+  // more slowly than the casters it pays the same kind of cost as.
+  s.mpRegen = (0.9 + int * 0.06) * (classDef.mpRegenMult || 1) + mods.mpRegen;
   s.lifeSteal = clamp(mods.lifeSteal, 0, 0.5);
   s.magicFind = mods.magicFind;
   s.xpBonus = mods.xpBonus;

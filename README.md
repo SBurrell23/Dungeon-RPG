@@ -130,6 +130,8 @@ js/
     sync.js           prediction, reconciliation, host-side intent bookkeeping
     events.js         applying the host's event stream to a client world
 
+  version.js          build stamp, shown faintly bottom-right
+
 tests/
   index.html          test runner page
   net-sim.js          four-player session with the transport taken out
@@ -139,6 +141,13 @@ tests/
 ---
 
 ## Design notes
+
+### The build stamp
+
+`js/version.js` holds a version and a build date, rendered faintly in the bottom-right
+corner on every screen. Bump it when you ship. It exists so that a bug report and the
+deployed game can be checked against each other before anyone goes looking for a fault
+that was fixed two builds ago.
 
 Things worth knowing before you extend it.
 
@@ -231,7 +240,10 @@ telegraphs, which used to exist only on the host, so everyone else was dodging a
 that gave them no tell.
 
 Monsters born mid-floor - a boss's summoned adds, a slime's children - are announced on
-the event stream, because the floor manifest went out long before they existed.
+the event stream, because the floor manifest went out long before they existed. So are
+sprung traps, whose state otherwise only travelled in the manifest. Both carry the floor
+they belong to: `loadFloor` clears the event queue, and the client checks the stamp, so
+a straggler cannot conjure a monster onto the floor after the one it came from.
 
 An intent separates *held* inputs (movement, aim, the attack button) from *edge* flags
 (dash, ability slots, use-potion, interact). Held inputs come from the latest packet, so

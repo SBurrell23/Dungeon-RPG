@@ -129,6 +129,12 @@ export class World {
     this.floaters = [];
     this.timers = [];
     this.removedIds = [];
+    // Every other list is cleared here; this one was not, so events queued on
+    // the floor just left were still broadcast after clients had applied the
+    // new floor's manifest. A leftover `spawn` then built a monster on the new
+    // floor that the host does not have - a bat only some players can see,
+    // standing still because no snapshot will ever mention it.
+    this.events = [];
     this.byId = new Map();
     this.descent = { playerId: null, progress: 0, flash: 0 };
     this.state = 'playing';
@@ -339,7 +345,7 @@ export class World {
     // for them would be dropped for want of a matching id.
     if (announce && this.isHost && this.netActive) {
       this.emitEvent({
-        t: 'spawn',
+        t: 'spawn', f: this.floorNo,
         id: m.id, k: m.monsterId, lv: m.level,
         e: m.elite ? 1 : 0, b: m.boss || 0,
         x: Math.round(m.x), y: Math.round(m.y),
@@ -1646,6 +1652,9 @@ export class World {
     trap.armed = false;
     trap.hidden = false;
     trap.seen = true;
+    // Trap state otherwise only travels in the once-per-floor manifest, so on
+    // every client a sprung trap stayed armed and visible for the whole run.
+    this.emitEvent({ t: 'trap', f: this.floorNo, x: trap.x, y: trap.y });
     p.stat.trapsTriggered++;
     // One-shot traps break when they fire; vents and gas jets keep working, so
     // they re-arm and stay on the map as a hazard to route around.

@@ -360,6 +360,64 @@ test('the relevance cap drops the furthest monsters, not the newest', () => {
   return { staged: near.length, sent: sent.size, furthestSent: Math.round(sentMax) };
 });
 
+test('a floor change does not carry monsters into the next floor', () => {
+  // Symptom: "non-hosts still see bats that are not really there". loadFloor
+  // cleared every other list but not the event queue, so a spawn event from the
+  // floor just left was broadcast after clients had applied the new manifest,
+  // conjuring a monster on the new floor that the host does not have.
+  const sim = new NetSim({ seed: 'straggler', clients: 1, floor: 1, latency: 0 });
+  const client = sim.clients[0].world;
+
+  // A boss summons on the old floor, and the party descends before the next
+  // snapshot flushes the event.
+  const summoner = sim.host.monsters[0];
+  sim.host.summonMinion(summoner, 'bat', summoner.x + 40, summoner.y);
+  const strayId = sim.host.monsters[sim.host.monsters.length - 1].id;
+  const queuedBefore = sim.host.events.filter((e) => e.t === 'spawn').length;
+  if (!queuedBefore) throw new Error('no spawn queued; test proves nothing');
+
+  sim.host.loadFloor(2);
+  client.loadFloor(2, { keepPlayers: true });
+  applyFloorManifest(client, JSON.parse(JSON.stringify(buildFloorManifest(sim.host))));
+
+  // Anything still queued now goes out on the next snapshot.
+  sim.run(30, () => idle());
+
+  if (client.byId.get(strayId)) {
+    throw new Error('client built a monster from the previous floor');
+  }
+  const hostIds = new Set(sim.host.monsters.map((m) => m.id));
+  const phantoms = client.monsters.filter((m) => !hostIds.has(m.id));
+  if (phantoms.length) {
+    throw new Error(`${phantoms.length} monsters on the client that the host does not have`);
+  }
+  return { queuedBefore, hostMonsters: sim.host.monsters.length, clientMonsters: client.monsters.length };
+});
+
+test('a sprung trap is spent on the clients too', () => {
+  // Symptom: trap state only ever travelled in the once-per-floor manifest, so
+  // on a client every trap stayed armed and visible for the whole run.
+  const sim = new NetSim({ seed: 'trapsync', clients: 2, floor: 4, latency: 0.05 });
+  const trap = sim.host.dungeon.props.find(
+    (t) => t.type === 'trap' && t.kind !== 'flame' && t.kind !== 'poison');
+  if (!trap) throw new Error('no one-shot trap on this floor');
+  const p = sim.host.players[0];
+  const c = sim.host.dungeon.tileCenter(trap.x, trap.y);
+  p.x = c.x; p.y = c.y; p.px = p.x; p.py = p.y;
+
+  sim.run(60, (i, tick, pl) => ({ ...idle(), aimX: pl.x + 60, aimY: pl.y }));
+
+  if (!trap.spent) throw new Error('the trap never fired; test proves nothing');
+  for (const cl of sim.clients) {
+    const cp = cl.world.dungeon.props.find((t) => t.type === 'trap' && t.x === trap.x && t.y === trap.y);
+    if (!cp) throw new Error('client has no such trap');
+    if (!cp.spent || cp.armed) {
+      throw new Error(`client trap still armed (armed=${cp.armed}, spent=${!!cp.spent})`);
+    }
+  }
+  return { kind: trap.kind, hostSpent: trap.spent, clientsSpent: sim.clients.length };
+});
+
 // ---------------------------------------------------------------------------
 
 export function runNetTests() {

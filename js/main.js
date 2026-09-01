@@ -1,4 +1,5 @@
 import { assets } from './assets/loader.js';
+import { VERSION, BUILD } from './version.js';
 import { Input, mergeIntents, EMPTY_INTENT } from './core/input.js';
 import {
   acceptInput, consumeIntent, predictLocal, reconcile, neutralIntent, INPUT_TIMEOUT,
@@ -95,6 +96,7 @@ window.addEventListener('resize', resize);
 resize();
 
 async function boot() {
+  $('#buildstamp').textContent = `v${VERSION} · ${BUILD}`;
   bindButtonSounds();
   bindMenu();
   bindHotkeys();
@@ -210,6 +212,8 @@ function bindMenu() {
   $('#btn-delete').addEventListener('click', () => { deleteSave(); refreshSaveSlot(); });
 
   $('#btn-options').addEventListener('click', () => openOptions());
+  // Waiting in the lobby is exactly when someone notices the music is too loud.
+  $('#btn-lobbyoptions').addEventListener('click', () => openOptions());
 
   // Leaving a run is destructive - the save stays, but the party stops where it
   // is - so it asks first, in the game's own voice rather than the browser's.
@@ -586,7 +590,7 @@ function bindHotkeys() {
     if (e.code === 'Escape') {
       if (isScreenOpen('screen-options')) { hideScreen('screen-options'); return; }
       if (anyModalOpen() && game.mode === 'playing') { closeAllModals(); hideTooltip(); return; }
-      if (game.mode === 'playing') openOptions();
+      if (game.mode === 'playing' || isScreenOpen('screen-lobby')) openOptions();
       return;
     }
     // Ctrl+Shift+` only. A bare backquote opened it by accident, and it is

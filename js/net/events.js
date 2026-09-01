@@ -1,6 +1,9 @@
 import { createMonster } from '../game/entities.js';
 import { bossForFloor } from '../game/monsters.js';
 
+/** Vents and gas jets re-arm; everything else is spent once it fires. */
+const PERSISTENT_TRAPS = new Set(['flame', 'poison']);
+
 /**
  * Apply one host event to a client world.
  *
@@ -36,9 +39,19 @@ export function applyRemoteEvent(world, e, onStockChanged) {
       break;
     case 'unlock':
       break;
+    case 'trap': {
+      const prop = world.dungeon.props.find((t) => t.type === 'trap' && t.x === e.x && t.y === e.y);
+      if (!prop) break;
+      prop.armed = false;
+      prop.hidden = false;
+      if (!PERSISTENT_TRAPS.has(prop.kind)) prop.spent = true;
+      break;
+    }
     case 'spawn': {
       // A monster born after the floor manifest went out: a summoned add or a
       // slime's children. Built the same way applyFloorManifest builds one.
+      // A stale event from the previous floor must not conjure one here.
+      if (e.f != null && e.f !== world.floorNo) break;
       if (world.byId.get(e.id)) break;
       const m = createMonster({
         monsterId: e.k, level: e.lv, elite: !!e.e,
